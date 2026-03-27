@@ -30,6 +30,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  AlertCircle,
   Edit,
   Eye,
   EyeOff,
@@ -37,9 +38,12 @@ import {
   Loader2,
   LogIn,
   Plus,
+  Star,
+  Tag,
   Trash2,
+  X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Article } from "../backend.d";
 import {
@@ -160,20 +164,24 @@ function LoginForm() {
   );
 }
 
-const CATEGORIES = ["General", "IPL", "International", "News"] as const;
+const CATEGORIES = ["IPL", "PSL", "International", "General", "News"] as const;
 
 function ArticlePreview({
   title,
   category,
   imageUrl,
   content,
+  excerpt,
 }: {
   title: string;
   category: string;
   imageUrl: string;
   content: string;
+  excerpt: string;
 }) {
-  const excerpt = content.slice(0, 400) + (content.length > 400 ? "..." : "");
+  const previewText =
+    excerpt.trim() ||
+    content.slice(0, 400) + (content.length > 400 ? "..." : "");
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 flex-wrap">
@@ -200,7 +208,7 @@ function ArticlePreview({
         />
       )}
       <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-        {excerpt || <span className="italic">No content yet</span>}
+        {previewText || <span className="italic">No content yet</span>}
       </p>
     </div>
   );
@@ -212,6 +220,8 @@ export default function AdminPage() {
   const {
     data: articles = [],
     isLoading: loadingArticles,
+    isError: articlesError,
+    error: articlesErrorObj,
     refetch: refetchArticles,
   } = useArticles();
   const createArticleMutation = useCreateArticle();
@@ -224,17 +234,43 @@ export default function AdminPage() {
   const [formImageUrl, setFormImageUrl] = useState("");
   const [formSlug, setFormSlug] = useState("");
   const [formPublished, setFormPublished] = useState(true);
+  const [formFeatured, setFormFeatured] = useState(false);
+  const [formExcerpt, setFormExcerpt] = useState("");
+  const [formTags, setFormTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const tagInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     document.title = "Admin Panel – CricFlash";
   }, []);
 
-  // Auto-generate slug from title
   const handleTitleChange = (val: string) => {
     setFormTitle(val);
     setFormSlug(generateSlug(val));
+  };
+
+  const addTag = (raw: string) => {
+    const tag = raw.trim().replace(/,/g, "");
+    if (tag && !formTags.includes(tag)) {
+      setFormTags((prev) => [...prev, tag]);
+    }
+    setTagInput("");
+  };
+
+  const removeTag = (tag: string) => {
+    setFormTags((prev) => prev.filter((t) => t !== tag));
+  };
+
+  const handleTagKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addTag(tagInput);
+    }
+    if (e.key === "Backspace" && !tagInput && formTags.length > 0) {
+      setFormTags((prev) => prev.slice(0, -1));
+    }
   };
 
   const resetForm = () => {
@@ -244,13 +280,21 @@ export default function AdminPage() {
     setFormImageUrl("");
     setFormSlug("");
     setFormPublished(true);
+    setFormFeatured(false);
+    setFormExcerpt("");
+    setFormTags([]);
+    setTagInput("");
     setEditingId(null);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formTitle.trim() || !formContent.trim()) {
-      toast.error("Title and content are required");
+    if (!formTitle.trim()) {
+      toast.error("Title is required");
+      return;
+    }
+    if (!formContent.trim()) {
+      toast.error("Content is required");
       return;
     }
     const payload = {
@@ -260,6 +304,9 @@ export default function AdminPage() {
       imageUrl: formImageUrl.trim(),
       slug: formSlug.trim() || generateSlug(formTitle.trim()),
       status: formPublished ? "published" : "draft",
+      featured: formFeatured,
+      excerpt: formExcerpt.trim(),
+      tags: formTags,
     };
     try {
       if (editingId) {
@@ -272,8 +319,10 @@ export default function AdminPage() {
         );
       }
       resetForm();
-    } catch {
-      toast.error("Failed to save article");
+      await refetchArticles();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(msg || "Failed to save article");
     }
   };
 
@@ -285,6 +334,10 @@ export default function AdminPage() {
     setFormImageUrl(article.imageUrl || "");
     setFormSlug(article.slug || generateSlug(article.title));
     setFormPublished(article.status !== "draft");
+    setFormFeatured(article.featured ?? false);
+    setFormExcerpt(article.excerpt ?? "");
+    setFormTags(article.tags ?? []);
+    setTagInput("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -292,8 +345,9 @@ export default function AdminPage() {
     try {
       await deleteArticleMutation.mutateAsync(id);
       toast.success("Article deleted");
-    } catch {
-      toast.error("Failed to delete article");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(msg || "Failed to delete article");
     }
   };
 
@@ -331,14 +385,13 @@ export default function AdminPage() {
                 value={formTitle}
                 onChange={(e) => handleTitleChange(e.target.value)}
                 placeholder="Enter article title..."
-                required
                 data-ocid="admin.input"
               />
             </div>
 
             {/* Category */}
             <div className="space-y-1.5">
-              <Label htmlFor="article-category">Category</Label>
+              <Label htmlFor="article-category">Category *</Label>
               <Select value={formCategory} onValueChange={setFormCategory}>
                 <SelectTrigger id="article-category" data-ocid="admin.select">
                   <SelectValue placeholder="Select category" />
@@ -353,6 +406,105 @@ export default function AdminPage() {
               </Select>
             </div>
 
+            {/* Excerpt */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="article-excerpt">Excerpt</Label>
+                <span className="text-xs text-muted-foreground">
+                  {formExcerpt.length}/300
+                </span>
+              </div>
+              <Textarea
+                id="article-excerpt"
+                value={formExcerpt}
+                onChange={(e) => setFormExcerpt(e.target.value)}
+                rows={3}
+                maxLength={300}
+                placeholder="Short summary shown in article cards (2-3 lines)..."
+                data-ocid="admin.textarea"
+              />
+            </div>
+
+            {/* Featured Toggle */}
+            <div className="bg-muted/40 rounded-xl p-3 space-y-1">
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="article-featured"
+                  checked={formFeatured}
+                  onCheckedChange={setFormFeatured}
+                  data-ocid="admin.switch"
+                />
+                <Label
+                  htmlFor="article-featured"
+                  className="cursor-pointer flex items-center gap-1.5"
+                >
+                  <Star className="w-3.5 h-3.5 text-yellow-500" />
+                  Mark as Featured
+                </Label>
+              </div>
+              <p className="text-xs text-muted-foreground pl-12">
+                Featured articles appear at the top of the homepage
+              </p>
+            </div>
+
+            {/* Tags Input */}
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="article-tags"
+                className="flex items-center gap-1.5"
+              >
+                <Tag className="w-3.5 h-3.5" />
+                Tags
+              </Label>
+              <div
+                className="min-h-[40px] flex flex-wrap gap-1.5 items-center border border-input rounded-md px-3 py-1.5 cursor-text bg-background"
+                onClick={() => tagInputRef.current?.focus()}
+                onKeyDown={() => tagInputRef.current?.focus()}
+                role="presentation"
+              >
+                {formTags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="inline-flex items-center gap-1 text-xs font-medium bg-cric-red/10 text-cric-red px-2 py-0.5 rounded-full"
+                  >
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeTag(tag);
+                      }}
+                      className="hover:text-cric-red/70 transition-colors"
+                      aria-label={`Remove tag ${tag}`}
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+                <input
+                  ref={tagInputRef}
+                  id="article-tags"
+                  type="text"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={handleTagKeyDown}
+                  onBlur={() => {
+                    if (tagInput.trim()) addTag(tagInput);
+                  }}
+                  placeholder={
+                    formTags.length === 0
+                      ? "Type tag and press Enter or comma..."
+                      : ""
+                  }
+                  className="flex-1 min-w-[120px] outline-none text-sm bg-transparent text-foreground placeholder:text-muted-foreground"
+                  data-ocid="admin.input"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Press Enter or comma to add a tag (e.g. IPL, PSL, Virat Kohli)
+              </p>
+            </div>
+
             {/* Featured Image URL */}
             <div className="space-y-1.5">
               <Label htmlFor="article-image">
@@ -363,7 +515,7 @@ export default function AdminPage() {
                 value={formImageUrl}
                 onChange={(e) => setFormImageUrl(e.target.value)}
                 placeholder="https://example.com/image.jpg"
-                type="url"
+                type="text"
                 data-ocid="admin.input"
               />
             </div>
@@ -377,7 +529,6 @@ export default function AdminPage() {
                 onChange={(e) => setFormContent(e.target.value)}
                 placeholder="Write your article content here..."
                 rows={10}
-                required
                 data-ocid="admin.textarea"
               />
               <p className="text-xs text-muted-foreground">
@@ -464,6 +615,7 @@ export default function AdminPage() {
                     category={formCategory}
                     imageUrl={formImageUrl}
                     content={formContent}
+                    excerpt={formExcerpt}
                   />
                 </DialogContent>
               </Dialog>
@@ -485,8 +637,13 @@ export default function AdminPage() {
         {/* Article List */}
         <div className="bg-card border border-border rounded-2xl p-6">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-foreground">
+            <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
               Articles ({articles.length})
+              {loadingArticles ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
+              ) : !articlesError && articles.length >= 0 ? (
+                <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
+              ) : null}
             </h2>
             <Button
               size="sm"
@@ -510,6 +667,25 @@ export default function AdminPage() {
                 />
               ))}
             </div>
+          ) : articlesError ? (
+            <div className="text-center py-8" data-ocid="admin.error_state">
+              <div className="flex items-center justify-center gap-2 text-destructive mb-2">
+                <AlertCircle className="w-5 h-5" />
+                <p className="text-sm font-medium">Failed to load articles</p>
+              </div>
+              <p className="text-xs text-muted-foreground mb-3">
+                {articlesErrorObj instanceof Error
+                  ? articlesErrorObj.message
+                  : "Connection error. Please try again."}
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => refetchArticles()}
+              >
+                Retry
+              </Button>
+            </div>
           ) : articles.length === 0 ? (
             <div className="text-center py-8" data-ocid="admin.empty_state">
               <p className="text-muted-foreground">No articles yet.</p>
@@ -530,8 +706,14 @@ export default function AdminPage() {
                       <p className="text-sm font-semibold text-foreground line-clamp-1">
                         {a.title}
                       </p>
+                      {a.featured && (
+                        <span className="inline-flex items-center gap-0.5 text-xs font-bold text-yellow-600 dark:text-yellow-400">
+                          <Star className="w-3 h-3 fill-current" />
+                          FEATURED
+                        </span>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs text-muted-foreground">
                         {formatDate(a.createdAt)}
                       </span>
@@ -550,6 +732,18 @@ export default function AdminPage() {
                         {a.status === "draft" ? "DRAFT" : "LIVE"}
                       </span>
                     </div>
+                    {a.tags && a.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1">
+                        {a.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="text-xs bg-cric-red/8 text-cric-red px-1.5 py-0.5 rounded-full"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
                     <Button

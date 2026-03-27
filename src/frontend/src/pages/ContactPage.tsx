@@ -1,10 +1,25 @@
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Mail, MapPin, MessageSquare } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle,
+  Mail,
+  MapPin,
+  MessageSquare,
+  XCircle,
+} from "lucide-react";
 import { useState } from "react";
 
+type FormState = { name: string; email: string; message: string };
+type SubmitStatus = "idle" | "loading" | "success" | "error";
+
 export default function ContactPage() {
-  const [sent, setSent] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", message: "" });
+  const [form, setForm] = useState<FormState>({
+    name: "",
+    email: "",
+    message: "",
+  });
+  const [status, setStatus] = useState<SubmitStatus>("idle");
+  const [errorMsg, setErrorMsg] = useState("");
   const navigate = useNavigate();
 
   const handleBack = () => {
@@ -15,9 +30,43 @@ export default function ContactPage() {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSent(true);
+    setStatus("loading");
+    setErrorMsg("");
+    try {
+      const res = await fetch(
+        "https://formsubmit.co/ajax/akhileshsworks@gmail.com",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            name: form.name,
+            email: form.email,
+            message: form.message,
+            _subject: `CricFlash Contact Form – Message from ${form.name}`,
+            _template: "table",
+          }),
+        },
+      );
+      const data = await res.json();
+      if (data.success === "true" || data.success === true) {
+        setStatus("success");
+        setForm({ name: "", email: "", message: "" });
+      } else {
+        throw new Error(data.message || "Submission failed");
+      }
+    } catch (err) {
+      setStatus("error");
+      setErrorMsg(
+        err instanceof Error
+          ? err.message
+          : "Failed to send message. Please try again or email us directly.",
+      );
+    }
   };
 
   return (
@@ -47,10 +96,10 @@ export default function ContactPage() {
             <div>
               <p className="text-sm font-semibold text-foreground">Email</p>
               <a
-                href="mailto:support@cricflash.com"
+                href="mailto:akhileshsworks@gmail.com"
                 className="text-sm text-muted-foreground hover:text-cric-red transition-colors"
               >
-                support@cricflash.com
+                akhileshsworks@gmail.com
               </a>
             </div>
           </div>
@@ -81,18 +130,25 @@ export default function ContactPage() {
         </div>
 
         <div className="bg-card border border-border rounded-xl p-6">
-          {sent ? (
+          {status === "success" ? (
             <div
               className="flex flex-col items-center justify-center h-full gap-3 py-6"
               data-ocid="contact.success_state"
             >
               <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center">
-                <Mail className="w-6 h-6 text-green-500" />
+                <CheckCircle className="w-6 h-6 text-green-500" />
               </div>
               <p className="text-foreground font-semibold">Message sent!</p>
               <p className="text-sm text-muted-foreground text-center">
                 Thanks for reaching out. We'll get back to you shortly.
               </p>
+              <button
+                type="button"
+                onClick={() => setStatus("idle")}
+                className="text-xs text-cric-red hover:underline mt-2"
+              >
+                Send another message
+              </button>
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -156,12 +212,28 @@ export default function ContactPage() {
                   data-ocid="contact.textarea"
                 />
               </div>
+              {status === "error" && (
+                <div className="flex items-start gap-2 text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">
+                  <XCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                  <span>
+                    {errorMsg || "Something went wrong. Please try again."}
+                  </span>
+                </div>
+              )}
               <button
                 type="submit"
-                className="w-full bg-cric-red hover:bg-cric-red/90 text-white text-sm font-semibold py-2.5 rounded-lg transition-colors"
+                disabled={status === "loading"}
+                className="w-full bg-cric-red hover:bg-cric-red/90 disabled:opacity-60 text-white text-sm font-semibold py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2"
                 data-ocid="contact.submit_button"
               >
-                Send Message
+                {status === "loading" ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  "Send Message"
+                )}
               </button>
             </form>
           )}

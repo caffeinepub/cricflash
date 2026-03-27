@@ -7,13 +7,17 @@ import {
   createRouter,
 } from "@tanstack/react-router";
 import { Suspense, lazy } from "react";
+import BottomNavigation from "./components/BottomNavigation";
 import Footer from "./components/Footer";
 import Navbar from "./components/Navbar";
+import { MatchProvider } from "./contexts/MatchContext";
+import { SimpleAuthProvider } from "./hooks/useSimpleAuth";
 import { useTheme } from "./hooks/useTheme";
 
 const HomePage = lazy(() => import("./pages/HomePage"));
 const NewsPage = lazy(() => import("./pages/NewsPage"));
 const IPLPage = lazy(() => import("./pages/IPLPage"));
+const PSLPage = lazy(() => import("./pages/PSLPage"));
 const InternationalPage = lazy(() => import("./pages/InternationalPage"));
 const LiveScorePage = lazy(() => import("./pages/LiveScorePage"));
 const MatchDetailPage = lazy(() => import("./pages/MatchDetailPage"));
@@ -22,6 +26,8 @@ const ArticleDetailPage = lazy(() => import("./pages/ArticleDetailPage"));
 const AboutPage = lazy(() => import("./pages/AboutPage"));
 const ContactPage = lazy(() => import("./pages/ContactPage"));
 const PrivacyPolicyPage = lazy(() => import("./pages/PrivacyPolicyPage"));
+const UpcomingMatchesPage = lazy(() => import("./pages/UpcomingMatchesPage"));
+const SeriesPage = lazy(() => import("./pages/SeriesPage"));
 
 function PageLoader() {
   return (
@@ -34,16 +40,21 @@ function PageLoader() {
 function RootLayout() {
   const { theme, toggleTheme } = useTheme();
   return (
-    <div className="min-h-screen flex flex-col bg-background text-foreground">
-      <Navbar theme={theme} onToggleTheme={toggleTheme} />
-      <main className="flex-1">
-        <Suspense fallback={<PageLoader />}>
-          <Outlet />
-        </Suspense>
-      </main>
-      <Footer />
-      <Toaster />
-    </div>
+    <SimpleAuthProvider>
+      <MatchProvider>
+        <div className="min-h-screen flex flex-col bg-background text-foreground">
+          <Navbar theme={theme} onToggleTheme={toggleTheme} />
+          <main className="flex-1 pb-16 md:pb-0">
+            <Suspense fallback={<PageLoader />}>
+              <Outlet />
+            </Suspense>
+          </main>
+          <Footer />
+          <BottomNavigation />
+          <Toaster />
+        </div>
+      </MatchProvider>
+    </SimpleAuthProvider>
   );
 }
 
@@ -63,6 +74,11 @@ const iplRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/ipl",
   component: IPLPage,
+});
+const pslRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/psl",
+  component: PSLPage,
 });
 const intlRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -104,11 +120,22 @@ const privacyRoute = createRoute({
   path: "/privacy-policy",
   component: PrivacyPolicyPage,
 });
+const upcomingMatchesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/upcoming-matches",
+  component: UpcomingMatchesPage,
+});
+const seriesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/series",
+  component: SeriesPage,
+});
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
   newsRoute,
   iplRoute,
+  pslRoute,
   intlRoute,
   liveRoute,
   matchRoute,
@@ -117,6 +144,8 @@ const routeTree = rootRoute.addChildren([
   aboutRoute,
   contactRoute,
   privacyRoute,
+  upcomingMatchesRoute,
+  seriesRoute,
 ]);
 
 const router = createRouter({ routeTree });

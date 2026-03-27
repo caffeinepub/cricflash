@@ -1,8 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { ArrowLeft, Menu, Moon, Search, Sun, X, Zap } from "lucide-react";
+import { ArrowLeft, Moon, Search, Sun, Zap } from "lucide-react";
 import { useState } from "react";
 import { useSimpleAuth } from "../hooks/useSimpleAuth";
+import DrawerMenu from "./DrawerMenu";
 import SearchOverlay from "./SearchOverlay";
 
 interface NavbarProps {
@@ -14,16 +15,21 @@ const NAV_LINKS = [
   { label: "HOME", path: "/" },
   { label: "NEWS", path: "/news" },
   { label: "IPL", path: "/ipl" },
+  { label: "PSL", path: "/psl" },
   { label: "INTERNATIONAL", path: "/international" },
+  { label: "SERIES", path: "/series" },
   { label: "LIVE SCORE", path: "/live-score" },
 ];
 
 const INNER_PATHS = [
   "/ipl",
+  "/psl",
   "/international",
   "/live-score",
   "/news",
+  "/series",
   "/admin",
+  "/upcoming-matches",
 ];
 const isInnerPage = (path: string) =>
   INNER_PATHS.some((p) => path === p) ||
@@ -35,7 +41,6 @@ export default function Navbar({ theme, onToggleTheme }: NavbarProps) {
   const pathname = routerState.location.pathname;
   const { isAdmin, logout } = useSimpleAuth();
   const navigate = useNavigate();
-  const [mobileOpen, setMobileOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
 
   const showBack = isInnerPage(pathname);
@@ -142,64 +147,9 @@ export default function Navbar({ theme, onToggleTheme }: NavbarProps) {
                 Sign Out
               </Button>
             )}
-            <button
-              type="button"
-              className="md:hidden p-2 rounded-lg hover:bg-accent"
-              onClick={() => setMobileOpen((v) => !v)}
-              aria-label="Menu"
-            >
-              {mobileOpen ? (
-                <X className="w-5 h-5" />
-              ) : (
-                <Menu className="w-5 h-5" />
-              )}
-            </button>
+            <DrawerMenu />
           </div>
         </div>
-
-        {mobileOpen && (
-          <div className="md:hidden bg-card border-t border-border px-4 py-3 flex flex-col gap-3">
-            {NAV_LINKS.map((link) => (
-              <Link
-                key={link.path}
-                to={link.path}
-                onClick={() => setMobileOpen(false)}
-                className={`text-sm font-semibold tracking-wider py-1 ${
-                  pathname === link.path
-                    ? "text-cric-red"
-                    : "text-muted-foreground"
-                }`}
-              >
-                {link.label}
-              </Link>
-            ))}
-            {isAdmin && (
-              <Link
-                to="/admin"
-                onClick={() => setMobileOpen(false)}
-                className={`text-sm font-semibold tracking-wider py-1 ${
-                  pathname === "/admin"
-                    ? "text-cric-red"
-                    : "text-muted-foreground"
-                }`}
-              >
-                ADMIN
-              </Link>
-            )}
-            {isAdmin && (
-              <button
-                type="button"
-                onClick={() => {
-                  logout();
-                  setMobileOpen(false);
-                }}
-                className="text-sm text-left text-muted-foreground"
-              >
-                Sign Out
-              </button>
-            )}
-          </div>
-        )}
       </header>
 
       <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} />

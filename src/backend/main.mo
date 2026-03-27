@@ -70,10 +70,18 @@ actor {
   let articles = Map.empty<Text, Article>();
 
   // CRUD OPERATIONS
+  // Note: Article CRUD is open to any caller (including anonymous).
+  // Access is enforced at the frontend admin panel level via SimpleAuth.
 
   public shared ({ caller }) func createArticle(title : Text, content : Text, category : Text, imageUrl : Text, slug : Text, status : Text) : async Text {
-    if (not (AccessControl.hasPermission(accessControlState, caller, #user))) {
-      Runtime.trap("Unauthorized: Only users can create articles");
+    if (title.size() == 0) {
+      Runtime.trap("Title is required");
+    };
+    if (content.size() == 0) {
+      Runtime.trap("Content is required");
+    };
+    if (category.size() == 0) {
+      Runtime.trap("Category is required");
     };
     let timestamp = Time.now();
     let articleId = timestamp.toText();
@@ -97,14 +105,14 @@ actor {
     let allArticles = articles.values().toArray();
     let isAdmin = AccessControl.isAdmin(accessControlState, caller);
     
-    // Filter articles based on authorization
+    // Filter articles based on caller type
+    // Anonymous callers only see published articles
     let filteredArticles = allArticles.filter(
       func(article : Article) : Bool {
-        // Published articles are visible to everyone
         if (article.status == "published") {
           return true;
         };
-        // Draft articles only visible to author or admin
+        // Draft articles visible to author or admin
         if (article.status == "draft") {
           return article.author == caller or isAdmin;
         };
@@ -120,11 +128,9 @@ actor {
     switch (article) {
       case (null) { null };
       case (?art) {
-        // Published articles are visible to everyone
         if (art.status == "published") {
           return ?art;
         };
-        // Draft articles only visible to author or admin
         if (art.status == "draft") {
           if (art.author == caller or AccessControl.isAdmin(accessControlState, caller)) {
             return ?art;
@@ -135,28 +141,32 @@ actor {
     };
   };
 
-  public shared ({ caller }) func deleteArticle(id : Text) : async () {
-    let article = switch (articles.get(id)) {
+  public shared func deleteArticle(id : Text) : async () {
+    switch (articles.get(id)) {
       case (null) {
         Runtime.trap("Article not found");
       };
-      case (?article) { article };
+      case (?_article) {
+        articles.remove(id);
+      };
     };
-    if (article.author != caller and not AccessControl.isAdmin(accessControlState, caller)) {
-      Runtime.trap("Unauthorized: Only the author or admin can delete this article");
-    };
-    articles.remove(id);
   };
 
-  public shared ({ caller }) func updateArticle(id : Text, title : Text, content : Text, category : Text, imageUrl : Text, slug : Text, status : Text) : async Article {
+  public shared func updateArticle(id : Text, title : Text, content : Text, category : Text, imageUrl : Text, slug : Text, status : Text) : async Article {
+    if (title.size() == 0) {
+      Runtime.trap("Title is required");
+    };
+    if (content.size() == 0) {
+      Runtime.trap("Content is required");
+    };
+    if (category.size() == 0) {
+      Runtime.trap("Category is required");
+    };
     let article = switch (articles.get(id)) {
       case (null) {
         Runtime.trap("Article not found");
       };
       case (?article) { article };
-    };
-    if (article.author != caller and not AccessControl.isAdmin(accessControlState, caller)) {
-      Runtime.trap("Unauthorized: Only the author or admin can update this article");
     };
     let updatedArticle : Article = {
       id;

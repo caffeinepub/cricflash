@@ -41,8 +41,10 @@ export default function ArticleCard({
     ? article.imageUrl
     : getFallbackImage(article.id);
   const displayCategory = category || article.category;
-  const excerpt =
-    article.content.slice(0, 120) + (article.content.length > 120 ? "..." : "");
+  const previewText = article.excerpt?.trim()
+    ? article.excerpt
+    : article.content.slice(0, 120) +
+      (article.content.length > 120 ? "..." : "");
   const dateStr = formatDate(article.createdAt);
 
   if (variant === "hero") {
@@ -134,7 +136,7 @@ export default function ArticleCard({
             {article.title}
           </h3>
           <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
-            {excerpt}
+            {previewText}
           </p>
           <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
             <Calendar className="w-3 h-3" />

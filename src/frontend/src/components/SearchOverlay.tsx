@@ -2,6 +2,11 @@ import { Link } from "@tanstack/react-router";
 import { Search, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useArticles } from "../hooks/useQueries";
+import {
+  type CricMatch,
+  getLiveMatches,
+  getUpcomingMatches,
+} from "../services/cricapi";
 
 interface SearchOverlayProps {
   open: boolean;
@@ -10,6 +15,7 @@ interface SearchOverlayProps {
 
 export default function SearchOverlay({ open, onClose }: SearchOverlayProps) {
   const [query, setQuery] = useState("");
+  const [matches, setMatches] = useState<CricMatch[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const { data: articles = [] } = useArticles();
 
@@ -19,6 +25,33 @@ export default function SearchOverlay({ open, onClose }: SearchOverlayProps) {
       setTimeout(() => inputRef.current?.focus(), 50);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open || matches.length > 0) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const [live, upcoming] = await Promise.all([
+          getLiveMatches(),
+          getUpcomingMatches(),
+        ]);
+        if (!cancelled) {
+          const all = [...live];
+          const liveIds = new Set(live.map((m) => m.id));
+          for (const m of upcoming) {
+            if (!liveIds.has(m.id)) all.push(m);
+          }
+          setMatches(all);
+        }
+      } catch {
+        // ignore
+      }
+    };
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, matches.length]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -31,7 +64,8 @@ export default function SearchOverlay({ open, onClose }: SearchOverlayProps) {
   if (!open) return null;
 
   const trimmed = query.trim().toLowerCase();
-  const results = trimmed
+
+  const articleResults = trimmed
     ? articles.filter(
         (a) =>
           a.status === "published" &&
@@ -39,6 +73,16 @@ export default function SearchOverlay({ open, onClose }: SearchOverlayProps) {
             a.content.toLowerCase().includes(trimmed)),
       )
     : [];
+
+  const matchResults = trimmed
+    ? matches.filter(
+        (m) =>
+          m.name?.toLowerCase().includes(trimmed) ||
+          m.teams?.some((t) => t.toLowerCase().includes(trimmed)),
+      )
+    : [];
+
+  const hasResults = articleResults.length > 0 || matchResults.length > 0;
 
   const excerpt = (content: string) => {
     const plain = content
@@ -67,7 +111,7 @@ export default function SearchOverlay({ open, onClose }: SearchOverlayProps) {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search articles\u2026"
+            placeholder="Search articles, teams, matches\u2026"
             className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground outline-none text-sm"
             data-ocid="search.input"
           />
@@ -84,7 +128,7 @@ export default function SearchOverlay({ open, onClose }: SearchOverlayProps) {
 
         {trimmed && (
           <div className="max-w-[1200px] mx-auto px-4 pb-4 max-h-[60vh] overflow-y-auto">
-            {results.length === 0 ? (
+            {!hasResults ? (
               <p
                 className="py-6 text-sm text-muted-foreground text-center"
                 data-ocid="search.empty_state"
@@ -92,24 +136,57 @@ export default function SearchOverlay({ open, onClose }: SearchOverlayProps) {
                 No results found
               </p>
             ) : (
-              <ul className="flex flex-col gap-2 mt-1">
-                {results.map((article, idx) => (
-                  <li key={article.id} data-ocid={`search.item.${idx + 1}`}>
-                    <Link
-                      to="/article/$id"
-                      params={{ id: article.id }}
-                      onClick={onClose}
-                      className="block rounded-lg p-3 hover:bg-accent transition-colors"
-                    >
-                      <p className="text-sm font-semibold text-foreground line-clamp-1">
-                        {article.title}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                        {excerpt(article.content)}
-                      </p>
-                    </Link>
-                  </li>
-                ))}
+              <ul className="flex flex-col gap-1 mt-1">
+                {articleResults.length > 0 && (
+                  <>
+                    <p className="text-xs font-semibold text-muted-foreground px-0 pt-2 pb-1 uppercase tracking-wider">
+                      Articles
+                    </p>
+                    {articleResults.slice(0, 5).map((article, idx) => (
+                      <li key={article.id} data-ocid={`search.item.${idx + 1}`}>
+                        <Link
+                          to="/article/$id"
+                          params={{ id: article.id }}
+                          onClick={onClose}
+                          className="block rounded-lg p-3 hover:bg-accent transition-colors"
+                        >
+                          <p className="text-sm font-semibold text-foreground line-clamp-1">
+                            {article.title}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                            {excerpt(article.content)}
+                          </p>
+                        </Link>
+                      </li>
+                    ))}
+                  </>
+                )}
+                {matchResults.length > 0 && (
+                  <>
+                    <p className="text-xs font-semibold text-muted-foreground px-0 pt-2 pb-1 uppercase tracking-wider">
+                      Matches
+                    </p>
+                    {matchResults.slice(0, 3).map((m) => (
+                      <li key={m.id}>
+                        <Link
+                          to="/match/$matchId"
+                          params={{ matchId: m.id }}
+                          onClick={onClose}
+                          className="block rounded-lg p-3 hover:bg-accent transition-colors"
+                        >
+                          <p className="text-sm font-semibold text-foreground line-clamp-1">
+                            {m.teams?.length === 2
+                              ? `${m.teams[0]} vs ${m.teams[1]}`
+                              : m.name}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            {m.name}
+                          </p>
+                        </Link>
+                      </li>
+                    ))}
+                  </>
+                )}
               </ul>
             )}
           </div>

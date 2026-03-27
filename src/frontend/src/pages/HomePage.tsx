@@ -1,359 +1,330 @@
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Link } from "@tanstack/react-router";
-import { ChevronRight, RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
-import ArticleCard from "../components/ArticleCard";
-import LiveTicker from "../components/LiveTicker";
+import { ChevronRight } from "lucide-react";
+import { useEffect } from "react";
+import type { Article } from "../backend.d";
 import MatchCard from "../components/MatchCard";
-import {
-  ArticleCardSkeleton,
-  HeroSkeleton,
-  MatchCardSkeleton,
-} from "../components/SkeletonCard";
+import { MatchCardSkeleton } from "../components/SkeletonCard";
+import { useMatches } from "../contexts/MatchContext";
 import { useArticles } from "../hooks/useQueries";
-import {
-  type CricMatch,
-  getLiveMatches,
-  getUpcomingMatches,
-} from "../services/cricapi";
 
-const currentYear = new Date().getFullYear();
+function formatDate(createdAt: bigint): string {
+  const ms = Number(createdAt) / 1_000_000;
+  return new Date(ms).toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
 
-const CATEGORIES = ["News", "IPL", "International", "General"];
-const POPULAR_SERIES = [
-  { label: `Indian Premier League ${currentYear}`, path: "/ipl" as const },
-  {
-    label: `ICC Champions Trophy ${currentYear}`,
-    path: "/international" as const,
-  },
-  { label: `The Ashes ${currentYear}`, path: "/international" as const },
-  { label: "World Test Championship", path: "/international" as const },
-];
+function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-function getMatchLabel(match: CricMatch): string {
-  const name = match.name || "";
-  const lower = name.toLowerCase();
-  if (lower.includes("ipl")) return "IPL";
-  if (lower.includes("psl")) return "PSL";
-  if (match.matchType) return match.matchType.toUpperCase();
-  return "Match";
+function CategoryBadge({ category }: { category: string }) {
+  const colorMap: Record<string, string> = {
+    IPL: "bg-orange-500/15 text-orange-600 dark:text-orange-400",
+    PSL: "bg-green-500/15 text-green-600 dark:text-green-400",
+    International: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+    News: "bg-muted text-muted-foreground",
+  };
+  const cls = colorMap[category] ?? "bg-muted text-muted-foreground";
+  return (
+    <span
+      className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${cls}`}
+    >
+      {category}
+    </span>
+  );
+}
+
+function MatchCarousel() {
+  const { classified, loading } = useMatches();
+  const { live, upcoming, completed } = classified;
+
+  // Show live first, then upcoming (nearest first), then most recent completed
+  const allMatches = [...live, ...upcoming, ...completed];
+
+  return (
+    <section className="mb-6">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-base font-bold text-foreground">Matches</h2>
+        <Link
+          to="/live-score"
+          className="text-xs text-cric-red hover:underline flex items-center gap-0.5"
+          data-ocid="home.link"
+        >
+          View all <ChevronRight className="w-3.5 h-3.5" />
+        </Link>
+      </div>
+      <div className="flex gap-3 overflow-x-auto pb-2 no-scrollbar">
+        {loading ? (
+          [1, 2, 3].map((n) => (
+            <div key={n} className="shrink-0 w-72">
+              <MatchCardSkeleton />
+            </div>
+          ))
+        ) : allMatches.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4">
+            No matches available
+          </p>
+        ) : (
+          allMatches.map((m) => (
+            <div key={m.id} className="shrink-0 w-72">
+              <MatchCard match={m} />
+            </div>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function FeaturedArticle({ article }: { article: Article }) {
+  return (
+    <section className="mb-6">
+      <h2 className="text-base font-bold text-foreground mb-3">Featured</h2>
+      <Link
+        to="/article/$id"
+        params={{ id: article.id }}
+        className="block bg-card border border-border rounded-xl overflow-hidden hover:border-cric-red/50 transition-colors"
+        data-ocid="home.card"
+      >
+        {article.imageUrl && (
+          <img
+            src={article.imageUrl}
+            alt={article.title}
+            className="w-full h-48 object-cover"
+            loading="lazy"
+          />
+        )}
+        <div className="p-4">
+          <div className="flex items-center gap-2 mb-2">
+            {article.category && <CategoryBadge category={article.category} />}
+            <span className="text-xs text-muted-foreground">
+              {formatDate(article.createdAt)}
+            </span>
+          </div>
+          <h3 className="font-bold text-lg text-foreground leading-snug line-clamp-2">
+            {article.title}
+          </h3>
+        </div>
+      </Link>
+    </section>
+  );
+}
+
+function ArticleRowCard({ article }: { article: Article }) {
+  const excerptText =
+    article.excerpt || stripHtml(article.content).slice(0, 100);
+
+  return (
+    <Link
+      to="/article/$id"
+      params={{ id: article.id }}
+      className="flex gap-3 py-3 border-b border-border last:border-0 hover:opacity-80 transition-opacity"
+      data-ocid="home.link"
+    >
+      {article.imageUrl && (
+        <img
+          src={article.imageUrl}
+          alt={article.title}
+          className="w-20 h-20 rounded-lg object-cover shrink-0"
+          loading="lazy"
+        />
+      )}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-bold text-foreground line-clamp-2 leading-snug">
+          {article.title}
+        </p>
+        {excerptText && (
+          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+            {excerptText}
+          </p>
+        )}
+      </div>
+    </Link>
+  );
+}
+
+function CompactArticleCard({ article }: { article: Article }) {
+  return (
+    <Link
+      to="/article/$id"
+      params={{ id: article.id }}
+      className="flex gap-3 items-start py-2.5 border-b border-border last:border-0 hover:opacity-80 transition-opacity"
+      data-ocid="home.link"
+    >
+      {article.imageUrl && (
+        <img
+          src={article.imageUrl}
+          alt={article.title}
+          className="w-16 h-16 rounded object-cover shrink-0"
+          loading="lazy"
+        />
+      )}
+      <div className="flex-1 min-w-0">
+        {article.category && <CategoryBadge category={article.category} />}
+        <p className="text-sm font-bold text-foreground line-clamp-2 leading-snug mt-1">
+          {article.title}
+        </p>
+      </div>
+    </Link>
+  );
 }
 
 export default function HomePage() {
-  const [liveMatches, setLiveMatches] = useState<CricMatch[]>([]);
-  const [upcomingMatches, setUpcomingMatches] = useState<CricMatch[]>([]);
-  const [loadingMatches, setLoadingMatches] = useState(true);
-  const { data: articles = [], isLoading: loadingArticles } = useArticles();
+  const { data: allArticles = [], isLoading: loadingArticles } = useArticles();
 
   useEffect(() => {
-    document.title = "CricFlash – Live Cricket Scores, News & Updates";
+    document.title = "CricFlash \u2013 Live Cricket Scores, News & Updates";
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    const loadMatches = async () => {
-      setLoadingMatches(true);
-      try {
-        const [live, upcoming] = await Promise.all([
-          getLiveMatches(),
-          getUpcomingMatches(),
-        ]);
-        if (!cancelled) {
-          setLiveMatches(live.slice(0, 5));
-          const filtered = upcoming
-            .filter((m) => !m.matchStarted && !m.matchEnded)
-            .sort((a, b) => {
-              const da = a.dateTimeGMT || a.date || "";
-              const db = b.dateTimeGMT || b.date || "";
-              return da.localeCompare(db);
-            })
-            .slice(0, 10);
-          setUpcomingMatches(filtered);
-        }
-      } catch {
-        // ignore
-      } finally {
-        if (!cancelled) setLoadingMatches(false);
-      }
-    };
-    loadMatches();
-    const interval = setInterval(loadMatches, 90_000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
+  const published = allArticles
+    .filter((a) => a.status === "published")
+    .sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
 
-  const heroArticle = articles[0];
-  const gridArticles = articles.slice(1, 5);
-  const moreArticles = articles.slice(5, 9);
+  const featuredArticle = published.find((a) => a.featured) ?? null;
+
+  const latestNews = published
+    .filter((a) => !featuredArticle || a.id !== featuredArticle.id)
+    .slice(0, 5);
+
+  const shownIds = new Set([
+    ...(featuredArticle ? [featuredArticle.id] : []),
+    ...latestNews.map((a) => a.id),
+  ]);
+
+  const getCategory = (cat: string) =>
+    published
+      .filter(
+        (a) =>
+          !shownIds.has(a.id) &&
+          a.category?.toLowerCase() === cat.toLowerCase(),
+      )
+      .slice(0, 5);
+
+  const iplArticles = getCategory("IPL");
+  const pslArticles = getCategory("PSL");
+  const intlArticles = getCategory("International");
 
   return (
-    <div>
-      <LiveTicker />
-      <div className="max-w-[1200px] mx-auto px-4 py-6">
-        <div className="flex flex-col lg:flex-row gap-6">
-          {/* Left column */}
-          <div className="flex-1 min-w-0 space-y-8">
-            <section>
-              {loadingArticles ? (
-                <HeroSkeleton />
-              ) : heroArticle ? (
-                <ArticleCard
-                  article={heroArticle}
-                  variant="hero"
-                  category="Featured"
-                />
-              ) : (
-                <div className="w-full h-[380px] rounded-2xl bg-card border border-border flex items-center justify-center">
-                  <div className="text-center">
-                    <p className="text-muted-foreground text-lg">
-                      No featured articles yet
-                    </p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Check back soon for the latest cricket news
-                    </p>
+    <div className="max-w-[1200px] mx-auto px-4 py-6">
+      {/* Match Carousel — uses shared MatchContext, same MatchCard as Matches tab */}
+      <MatchCarousel />
+
+      {!loadingArticles && featuredArticle && (
+        <FeaturedArticle article={featuredArticle} />
+      )}
+
+      {/* Latest News */}
+      <section className="mb-8">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-bold text-foreground">Latest News</h2>
+          <Link
+            to="/news"
+            className="text-xs text-cric-red hover:underline flex items-center gap-0.5"
+            data-ocid="home.link"
+          >
+            View all <ChevronRight className="w-3.5 h-3.5" />
+          </Link>
+        </div>
+        <div className="bg-card border border-border rounded-xl px-4">
+          {loadingArticles ? (
+            <div className="space-y-3 py-3">
+              {[1, 2, 3].map((n) => (
+                <div
+                  key={n}
+                  className="flex gap-3 py-3 border-b border-border last:border-0"
+                >
+                  <div className="w-20 h-20 rounded-lg bg-muted animate-pulse shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 bg-muted animate-pulse rounded w-3/4" />
+                    <div className="h-3 bg-muted animate-pulse rounded w-full" />
+                    <div className="h-3 bg-muted animate-pulse rounded w-2/3" />
                   </div>
                 </div>
-              )}
-            </section>
-
-            <section>
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-bold text-foreground">
-                  Latest News
-                </h2>
-                <Link
-                  to="/news"
-                  className="text-sm text-cric-red hover:underline flex items-center gap-1"
-                  data-ocid="home.link"
-                >
-                  View all <ChevronRight className="w-4 h-4" />
-                </Link>
-              </div>
-              {loadingArticles ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {[1, 2, 3, 4].map((n) => (
-                    <ArticleCardSkeleton key={n} />
-                  ))}
-                </div>
-              ) : gridArticles.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {gridArticles.map((a, gi) => (
-                    <ArticleCard
-                      key={a.id}
-                      article={a}
-                      variant="grid"
-                      category={CATEGORIES[gi % CATEGORIES.length]}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <div
-                  className="bg-card border border-border rounded-xl p-8 text-center"
-                  data-ocid="home.empty_state"
-                >
-                  <p className="text-muted-foreground">
-                    No articles yet. Check back soon!
-                  </p>
-                </div>
-              )}
-            </section>
-
-            {moreArticles.length > 0 && (
-              <section>
-                <h2 className="text-lg font-bold text-foreground mb-4">
-                  More Cricket News
-                </h2>
-                <div className="space-y-4">
-                  {moreArticles.map((a, mi) => (
-                    <ArticleCard
-                      key={a.id}
-                      article={a}
-                      variant="horizontal"
-                      category={CATEGORIES[mi % CATEGORIES.length]}
-                    />
-                  ))}
-                </div>
-              </section>
-            )}
-          </div>
-
-          {/* Sidebar */}
-          <aside className="lg:w-[340px] shrink-0 space-y-6">
-            <div className="bg-card border border-border rounded-xl overflow-hidden">
-              <div className="px-4 pt-4 pb-2">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-foreground">Live Matches</h3>
-                  <span className="flex items-center gap-1 text-xs text-cric-red font-bold">
-                    <span className="w-1.5 h-1.5 rounded-full bg-cric-red animate-pulse" />
-                    LIVE
-                  </span>
-                </div>
-              </div>
-              <Tabs defaultValue="summary" className="w-full">
-                <TabsList className="w-full rounded-none border-b border-border bg-transparent px-4 h-9">
-                  <TabsTrigger
-                    value="summary"
-                    className="text-xs"
-                    data-ocid="home.tab"
-                  >
-                    Match Summary
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="scores"
-                    className="text-xs"
-                    data-ocid="home.tab"
-                  >
-                    Scores
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="stats"
-                    className="text-xs"
-                    data-ocid="home.tab"
-                  >
-                    Stats
-                  </TabsTrigger>
-                </TabsList>
-                <TabsContent value="summary" className="p-4 space-y-3">
-                  {loadingMatches ? (
-                    [1, 2].map((n) => <MatchCardSkeleton key={n} />)
-                  ) : liveMatches.length > 0 ? (
-                    liveMatches
-                      .slice(0, 3)
-                      .map((m) => <MatchCard key={m.id} match={m} />)
-                  ) : (
-                    <p
-                      className="text-sm text-muted-foreground text-center py-4"
-                      data-ocid="home.empty_state"
-                    >
-                      No live matches right now
-                    </p>
-                  )}
-                </TabsContent>
-                <TabsContent value="scores" className="p-4">
-                  {liveMatches.slice(0, 3).map((m) => (
-                    <div key={m.id} className="mb-3">
-                      <p className="text-xs font-semibold text-foreground mb-1">
-                        {m.name}
-                      </p>
-                      {m.score?.map((s, si) => (
-                        <p
-                          key={`${s.inning}-${si}`}
-                          className="text-xs text-muted-foreground"
-                        >
-                          {s.inning}: {s.r}/{s.w} ({s.o} ov)
-                        </p>
-                      ))}
-                    </div>
-                  ))}
-                  {liveMatches.length === 0 && (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      No live matches
-                    </p>
-                  )}
-                </TabsContent>
-                <TabsContent value="stats" className="p-4">
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    Stats coming soon
-                  </p>
-                </TabsContent>
-              </Tabs>
-              <div className="px-4 pb-4">
-                <Link
-                  to="/live-score"
-                  className="text-xs text-cric-red hover:underline"
-                  data-ocid="home.link"
-                >
-                  View all live matches →
-                </Link>
-              </div>
+              ))}
             </div>
-
-            <div className="bg-card border border-border rounded-xl p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-bold text-foreground">Upcoming Matches</h3>
-                <RefreshCw className="w-3.5 h-3.5 text-muted-foreground" />
-              </div>
-              {loadingMatches ? (
-                <div className="space-y-3">
-                  {[1, 2, 3].map((n) => (
-                    <MatchCardSkeleton key={n} />
-                  ))}
-                </div>
-              ) : upcomingMatches.length > 0 ? (
-                <div className="space-y-1 max-h-[420px] overflow-y-auto pr-1">
-                  {upcomingMatches.map((m) => (
-                    <Link
-                      to="/match/$matchId"
-                      params={{ matchId: m.id }}
-                      key={m.id}
-                      className="flex items-start justify-between py-2.5 px-1 border-b border-border last:border-0 hover:opacity-80 transition-opacity gap-2"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-foreground line-clamp-1">
-                          {m.teams?.length === 2
-                            ? `${m.teams[0]} vs ${m.teams[1]}`
-                            : m.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {m.dateTimeGMT || m.date
-                            ? new Date(m.dateTimeGMT || m.date).toLocaleString(
-                                [],
-                                {
-                                  month: "short",
-                                  day: "numeric",
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                },
-                              )
-                            : "TBD"}
-                        </p>
-                        <span className="text-xs text-green-600 dark:text-green-400 font-medium">
-                          Upcoming
-                        </span>
-                      </div>
-                      <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full shrink-0 mt-0.5">
-                        {getMatchLabel(m)}
-                      </span>
-                    </Link>
-                  ))}
-                </div>
-              ) : (
-                <p
-                  className="text-sm text-muted-foreground text-center py-4"
-                  data-ocid="home.empty_state"
-                >
-                  No upcoming matches found
-                </p>
-              )}
-              <Link
-                to="/live-score"
-                className="text-xs text-cric-red hover:underline mt-3 block"
-                data-ocid="home.link"
-              >
-                Show more →
-              </Link>
-            </div>
-
-            <div className="bg-card border border-border rounded-xl p-4">
-              <h3 className="font-bold text-foreground mb-3">Popular Series</h3>
-              <div className="space-y-2">
-                {POPULAR_SERIES.map((s) => (
-                  <Link
-                    key={s.label}
-                    to={s.path}
-                    data-ocid="home.button"
-                    className="block w-full text-left text-sm font-medium text-foreground bg-accent hover:bg-cric-red hover:text-white px-4 py-2.5 rounded-lg transition-colors"
-                  >
-                    {s.label}
-                  </Link>
-                ))}
-              </div>
-            </div>
-          </aside>
+          ) : latestNews.length > 0 ? (
+            latestNews.map((a) => <ArticleRowCard key={a.id} article={a} />)
+          ) : (
+            <p
+              className="py-8 text-sm text-muted-foreground text-center"
+              data-ocid="home.empty_state"
+            >
+              No articles yet. Check back soon!
+            </p>
+          )}
         </div>
-      </div>
+      </section>
+
+      {/* IPL Section */}
+      {!loadingArticles && iplArticles.length > 0 && (
+        <section className="mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-bold text-foreground">IPL</h2>
+            <Link
+              to="/ipl"
+              className="text-xs text-cric-red hover:underline flex items-center gap-0.5"
+              data-ocid="home.link"
+            >
+              View all <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+          <div className="bg-card border border-border rounded-xl px-4">
+            {iplArticles.map((a) => (
+              <CompactArticleCard key={a.id} article={a} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* PSL Section */}
+      {!loadingArticles && pslArticles.length > 0 && (
+        <section className="mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-bold text-foreground">PSL</h2>
+            <Link
+              to="/psl"
+              className="text-xs text-cric-red hover:underline flex items-center gap-0.5"
+              data-ocid="home.link"
+            >
+              View all <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+          <div className="bg-card border border-border rounded-xl px-4">
+            {pslArticles.map((a) => (
+              <CompactArticleCard key={a.id} article={a} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* International Section */}
+      {!loadingArticles && intlArticles.length > 0 && (
+        <section className="mb-8">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-bold text-foreground">
+              International
+            </h2>
+            <Link
+              to="/international"
+              className="text-xs text-cric-red hover:underline flex items-center gap-0.5"
+              data-ocid="home.link"
+            >
+              View all <ChevronRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+          <div className="bg-card border border-border rounded-xl px-4">
+            {intlArticles.map((a) => (
+              <CompactArticleCard key={a.id} article={a} />
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

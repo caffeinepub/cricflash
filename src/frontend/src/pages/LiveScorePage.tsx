@@ -1,89 +1,154 @@
 import { Button } from "@/components/ui/button";
-import { AlertCircle, Clock, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AlertCircle, ChevronDown, RefreshCw } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import MatchCard from "../components/MatchCard";
 import { MatchCardSkeleton } from "../components/SkeletonCard";
-import { type CricMatch, getLiveMatches } from "../services/cricapi";
+import { useMatches } from "../contexts/MatchContext";
+import type { NormalizedMatch } from "../services/cricapi";
 
-const REFRESH_INTERVAL = 150;
+const SERIES_OPTIONS = ["All", "IPL", "PSL", "International"] as const;
+const TYPE_OPTIONS = ["All", "T20", "ODI", "Test"] as const;
+type SeriesFilter = (typeof SERIES_OPTIONS)[number];
+type TypeFilter = (typeof TYPE_OPTIONS)[number];
 
-export default function LiveScorePage() {
-  const [matches, setMatches] = useState<CricMatch[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
-  const [refreshing, setRefreshing] = useState(false);
+function applyFilters(
+  matches: NormalizedMatch[],
+  seriesFilter: SeriesFilter,
+  typeFilter: TypeFilter,
+): NormalizedMatch[] {
+  return matches.filter((m) => {
+    const seriesOk =
+      seriesFilter === "All" ||
+      (seriesFilter === "IPL" && m.series === "IPL") ||
+      (seriesFilter === "PSL" && m.series === "PSL") ||
+      (seriesFilter === "International" && m.series === "International");
+    const typeOk =
+      typeFilter === "All" ||
+      m.matchType.toUpperCase() === typeFilter.toUpperCase();
+    return seriesOk && typeOk;
+  });
+}
+
+function FilterDropdown<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: readonly T[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    document.title = "Live Cricket Scores – CricFlash";
-  }, []);
-
-  const fetchMatches = useCallback(async (manual = false) => {
-    if (manual) setRefreshing(true);
-    else setLoading(true);
-    setError(null);
-    try {
-      const data = await getLiveMatches();
-      setMatches(data);
-      setCountdown(REFRESH_INTERVAL);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load matches");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
     }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
   }, []);
-
-  useEffect(() => {
-    fetchMatches();
-    const interval = setInterval(() => fetchMatches(), REFRESH_INTERVAL * 1000);
-    return () => clearInterval(interval);
-  }, [fetchMatches]);
-
-  useEffect(() => {
-    const timer = setInterval(
-      () => setCountdown((c) => (c <= 1 ? REFRESH_INTERVAL : c - 1)),
-      1000,
-    );
-    return () => clearInterval(timer);
-  }, []);
-
-  const liveMatches = matches.filter((m) => m.matchStarted && !m.matchEnded);
-  const recentMatches = matches.filter((m) => m.matchEnded);
-  const upcomingMatches = matches.filter((m) => !m.matchStarted);
 
   return (
-    <div className="max-w-[1200px] mx-auto px-4 py-8">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="border border-border rounded-lg px-3 py-2 text-sm flex items-center gap-2 bg-card hover:bg-muted transition-colors"
+      >
+        <span className="text-muted-foreground text-xs">{label}:</span>
+        <span className="font-medium">{value}</span>
+        <ChevronDown
+          className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${
+            open ? "rotate-180" : ""
+          }`}
+        />
+      </button>
+      {open && (
+        <div className="absolute z-50 mt-1 bg-card border border-border rounded-lg shadow-lg min-w-[140px]">
+          {options.map((opt) => (
+            <button
+              key={opt}
+              type="button"
+              className={`w-full text-left px-4 py-2 text-sm hover:bg-muted transition-colors first:rounded-t-lg last:rounded-b-lg ${
+                value === opt ? "font-semibold text-cric-red" : ""
+              }`}
+              onClick={() => {
+                onChange(opt);
+                setOpen(false);
+              }}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function LiveScorePage() {
+  const { classified, loading, error, refresh } = useMatches();
+  const [refreshing, setRefreshing] = useState(false);
+  const [seriesFilter, setSeriesFilter] = useState<SeriesFilter>("All");
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("All");
+
+  useEffect(() => {
+    document.title = "Live Cricket Scores \u2013 CricFlash";
+  }, []);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await refresh();
+    setRefreshing(false);
+  };
+
+  const {
+    live: liveMatches,
+    upcoming: upcomingMatches,
+    completed: completedMatches,
+  } = classified;
+
+  const filteredLive = applyFilters(liveMatches, seriesFilter, typeFilter);
+  const filteredUpcoming = applyFilters(
+    upcomingMatches,
+    seriesFilter,
+    typeFilter,
+  );
+  const filteredCompleted = applyFilters(
+    completedMatches,
+    seriesFilter,
+    typeFilter,
+  );
+
+  return (
+    <div className="max-w-[1200px] mx-auto px-4 py-4">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-extrabold text-foreground">
             Live Cricket Scores
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="text-sm text-muted-foreground mt-0.5">
             Real-time scores from around the world
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <span
-            className="flex items-center gap-1.5 text-sm text-muted-foreground"
-            data-ocid="live.loading_state"
-          >
-            <Clock className="w-4 h-4" />
-            Refreshes in {countdown}s
-          </span>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => fetchMatches(true)}
-            disabled={refreshing}
-            data-ocid="live.button"
-          >
-            <RefreshCw
-              className={`w-3.5 h-3.5 mr-1.5 ${refreshing ? "animate-spin" : ""}`}
-            />
-            Refresh
-          </Button>
-        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleRefresh}
+          disabled={refreshing}
+          data-ocid="live.button"
+        >
+          <RefreshCw
+            className={`w-3.5 h-3.5 mr-1.5 ${refreshing ? "animate-spin" : ""}`}
+          />
+          Refresh
+        </Button>
       </div>
 
       {error && (
@@ -96,7 +161,7 @@ export default function LiveScorePage() {
           <Button
             size="sm"
             variant="outline"
-            onClick={() => fetchMatches(true)}
+            onClick={handleRefresh}
             className="ml-auto"
           >
             Retry
@@ -114,59 +179,118 @@ export default function LiveScorePage() {
           ))}
         </div>
       ) : (
-        <>
-          {liveMatches.length > 0 && (
-            <section className="mb-8">
-              <h2 className="flex items-center gap-2 text-lg font-bold text-foreground mb-4">
-                <span className="w-2 h-2 rounded-full bg-cric-red animate-pulse" />
-                Live Now ({liveMatches.length})
-              </h2>
+        <Tabs defaultValue="live">
+          <TabsList className="w-full mb-4" data-ocid="live.tab">
+            <TabsTrigger value="live" className="flex-1" data-ocid="live.tab">
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-cric-red animate-pulse" />
+                Live
+                {liveMatches.length > 0 && (
+                  <span className="ml-1 text-xs bg-cric-red text-white rounded-full px-1.5 py-0.5 leading-none">
+                    {liveMatches.length}
+                  </span>
+                )}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger
+              value="upcoming"
+              className="flex-1"
+              data-ocid="live.tab"
+            >
+              Upcoming
+            </TabsTrigger>
+            <TabsTrigger
+              value="results"
+              className="flex-1"
+              data-ocid="live.tab"
+            >
+              Results
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Filters shared across all tabs */}
+          <div className="flex gap-2 mb-4">
+            <FilterDropdown
+              label="Series"
+              options={SERIES_OPTIONS}
+              value={seriesFilter}
+              onChange={setSeriesFilter}
+            />
+            <FilterDropdown
+              label="Type"
+              options={TYPE_OPTIONS}
+              value={typeFilter}
+              onChange={setTypeFilter}
+            />
+          </div>
+
+          <TabsContent value="live">
+            {filteredLive.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {liveMatches.map((m, i) => (
+                {filteredLive.map((m, i) => (
                   <div key={m.id} data-ocid={`live.item.${i + 1}`}>
                     <MatchCard match={m} />
                   </div>
                 ))}
               </div>
-            </section>
-          )}
-          {upcomingMatches.length > 0 && (
-            <section className="mb-8">
-              <h2 className="text-lg font-bold text-foreground mb-4">
-                Upcoming Matches
-              </h2>
+            ) : (
+              <div className="text-center py-16" data-ocid="live.empty_state">
+                <p className="text-muted-foreground text-lg">No live matches</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {seriesFilter !== "All" || typeFilter !== "All"
+                    ? "Try adjusting your filters"
+                    : "Check back later for live scores"}
+                </p>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="upcoming">
+            {filteredUpcoming.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {upcomingMatches.slice(0, 9).map((m, i) => (
+                {filteredUpcoming.map((m, i) => (
                   <div key={m.id} data-ocid={`live.item.${i + 1}`}>
                     <MatchCard match={m} />
                   </div>
                 ))}
               </div>
-            </section>
-          )}
-          {recentMatches.length > 0 && (
-            <section>
-              <h2 className="text-lg font-bold text-foreground mb-4">
-                Recent Results
-              </h2>
+            ) : (
+              <div className="text-center py-16" data-ocid="live.empty_state">
+                <p className="text-muted-foreground text-lg">
+                  No upcoming matches
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {seriesFilter !== "All" || typeFilter !== "All"
+                    ? "Try adjusting your filters"
+                    : "No scheduled matches in the next 5 days"}
+                </p>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="results">
+            {filteredCompleted.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {recentMatches.slice(0, 6).map((m, i) => (
+                {filteredCompleted.map((m, i) => (
                   <div key={m.id} data-ocid={`live.item.${i + 1}`}>
                     <MatchCard match={m} />
                   </div>
                 ))}
               </div>
-            </section>
-          )}
-          {matches.length === 0 && !error && (
-            <div className="text-center py-16" data-ocid="live.empty_state">
-              <p className="text-muted-foreground text-lg">No matches found</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Check back later for live scores
-              </p>
-            </div>
-          )}
-        </>
+            ) : (
+              <div className="text-center py-16" data-ocid="live.empty_state">
+                <p className="text-muted-foreground text-lg">
+                  No results available
+                </p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {seriesFilter !== "All" || typeFilter !== "All"
+                    ? "Try adjusting your filters"
+                    : "No completed matches yet"}
+                </p>
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   );

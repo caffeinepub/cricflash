@@ -20,6 +20,10 @@ export interface Article {
     author: Principal;
     imageUrl: string;
     category: string;
+    featured?: boolean;
+    excerpt?: string;
+    tags?: string[];
+    publishedAt?: number;
 }
 export enum UserRole {
     admin = "admin",

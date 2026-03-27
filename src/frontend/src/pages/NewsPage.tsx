@@ -6,7 +6,10 @@ import { ArticleCardSkeleton } from "../components/SkeletonCard";
 import { useArticles } from "../hooks/useQueries";
 
 export default function NewsPage() {
-  const { data: articles = [], isLoading, isError, refetch } = useArticles();
+  const { data: allArticles = [], isLoading, isError, refetch } = useArticles();
+  const articles = allArticles
+    .filter((a) => a.status === "published")
+    .sort((a, b) => Number(b.createdAt) - Number(a.createdAt));
 
   useEffect(() => {
     document.title = "Cricket News – CricFlash";
@@ -62,7 +65,11 @@ export default function NewsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {articles.map((a, i) => (
             <div key={a.id} data-ocid={`news.item.${i + 1}`}>
-              <ArticleCard article={a} variant="grid" category="News" />
+              <ArticleCard
+                article={a}
+                variant="grid"
+                category={a.category || "News"}
+              />
             </div>
           ))}
         </div>

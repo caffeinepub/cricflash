@@ -1,9 +1,9 @@
 import { Link } from "@tanstack/react-router";
 import { Calendar, MapPin } from "lucide-react";
-import type { CricMatch } from "../services/cricapi";
+import type { NormalizedMatch } from "../services/cricapi";
 
 interface MatchCardProps {
-  match: CricMatch;
+  match: NormalizedMatch;
   showLink?: boolean;
 }
 
@@ -28,67 +28,143 @@ function getTeamFlag(name: string): string {
   return "🏏";
 }
 
-function CardContent({ match }: { match: CricMatch }) {
-  const isLive = match.matchStarted && !match.matchEnded;
+function formatMatchDate(date: Date | null): string {
+  if (!date) return "";
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const matchDay = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+  );
+  if (matchDay.getTime() === today.getTime()) return "Today";
+  if (matchDay.getTime() === tomorrow.getTime()) return "Tomorrow";
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function StatusBadge({ status }: { status: NormalizedMatch["status"] }) {
+  if (status === "live") {
+    return (
+      <span className="flex items-center gap-1 bg-cric-red text-white text-xs font-bold px-2 py-0.5 rounded-full">
+        <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+        LIVE
+      </span>
+    );
+  }
+  if (status === "upcoming") {
+    return (
+      <span className="text-xs font-semibold bg-green-500/15 text-green-600 dark:text-green-400 px-2 py-0.5 rounded-full">
+        Upcoming
+      </span>
+    );
+  }
+  return (
+    <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+      Result
+    </span>
+  );
+}
+
+function CardContent({ match }: { match: NormalizedMatch }) {
+  const {
+    team1,
+    team2,
+    score1,
+    score2,
+    overs1,
+    overs2,
+    status,
+    date,
+    venue,
+    series,
+    matchType,
+    statusText,
+  } = match;
+
   return (
     <div className="bg-card border border-border rounded-xl p-4 shadow-card hover:border-cric-border transition-colors">
+      {/* Top row: series/type + status badge */}
       <div className="flex items-start justify-between mb-3">
-        <span className="text-xs text-muted-foreground font-medium uppercase tracking-wider">
-          {match.matchType}
-        </span>
-        {isLive ? (
-          <span className="flex items-center gap-1 bg-cric-red text-white text-xs font-bold px-2 py-0.5 rounded-full">
-            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-            LIVE
-          </span>
-        ) : match.matchEnded ? (
-          <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-            Ended
-          </span>
-        ) : (
-          <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-            Upcoming
-          </span>
-        )}
+        <div className="flex items-center gap-1.5">
+          {series !== "International" && (
+            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-600 dark:text-orange-400">
+              {series}
+            </span>
+          )}
+          {matchType && (
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {matchType}
+            </span>
+          )}
+        </div>
+        <StatusBadge status={status} />
       </div>
-      <div className="space-y-2">
-        {match.teams.map((team) => {
-          const score = match.score?.find((s) => s.inning.startsWith(team));
-          return (
-            <div key={team} className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-lg">{getTeamFlag(team)}</span>
-                <span className="font-semibold text-sm text-foreground">
-                  {team}
-                </span>
-              </div>
-              {score && (
-                <span className="text-sm font-bold text-foreground">
-                  {score.r}/{score.w}
-                  <span className="text-xs text-muted-foreground font-normal ml-1">
-                    ({score.o})
-                  </span>
+
+      {/* Teams and scores */}
+      <div className="space-y-2 mb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">{getTeamFlag(team1)}</span>
+            <span className="font-semibold text-sm text-foreground">
+              {team1}
+            </span>
+          </div>
+          {score1 && (
+            <span className="text-sm font-bold text-foreground">
+              {score1}
+              {overs1 && (
+                <span className="text-xs text-muted-foreground font-normal ml-1">
+                  ({overs1})
                 </span>
               )}
-            </div>
-          );
-        })}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">{getTeamFlag(team2)}</span>
+            <span className="font-semibold text-sm text-foreground">
+              {team2}
+            </span>
+          </div>
+          {score2 && (
+            <span className="text-sm font-bold text-foreground">
+              {score2}
+              {overs2 && (
+                <span className="text-xs text-muted-foreground font-normal ml-1">
+                  ({overs2})
+                </span>
+              )}
+            </span>
+          )}
+        </div>
       </div>
-      {match.status && (
-        <p className="mt-3 text-xs text-cric-red font-medium">{match.status}</p>
+
+      {/* Status text */}
+      {statusText && (
+        <p className="text-xs text-cric-red font-medium truncate mb-2">
+          {statusText.slice(0, 60)}
+          {statusText.length > 60 ? "…" : ""}
+        </p>
       )}
-      <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        {match.venue && (
-          <span className="flex items-center gap-1">
-            <MapPin className="w-3 h-3" />
-            {match.venue.slice(0, 40)}
-            {match.venue.length > 40 ? "..." : ""}
-          </span>
-        )}
-        {match.date && (
+
+      {/* Meta: date / venue */}
+      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        {date && (
           <span className="flex items-center gap-1">
             <Calendar className="w-3 h-3" />
-            {new Date(match.date).toLocaleDateString()}
+            {formatMatchDate(date)}
+          </span>
+        )}
+        {venue && (
+          <span className="flex items-center gap-1 truncate">
+            <MapPin className="w-3 h-3 shrink-0" />
+            <span className="truncate">
+              {venue.slice(0, 35)}
+              {venue.length > 35 ? "…" : ""}
+            </span>
           </span>
         )}
       </div>
