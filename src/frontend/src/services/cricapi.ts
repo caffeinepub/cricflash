@@ -303,13 +303,23 @@ export function normalizeMatch(match: CricMatch): NormalizedMatch {
   const statusLower = statusText.toLowerCase();
 
   let status: NormalizedMatch["status"];
-  if (statusLower.includes("live") || statusLower.includes("in progress")) {
+
+  if (
+    statusLower.includes("live") ||
+    statusLower.includes("progress") ||
+    statusLower.includes("inning") ||
+    statusLower.includes("started")
+  ) {
     status = "live";
+  } else if (statusLower.includes("won") || statusLower.includes("result")) {
+    status = "result";
   } else if (matchDate && matchDate >= now) {
     status = "upcoming";
   } else {
     status = "result";
   }
+
+  console.log("STATUS CHECK:", statusText, "→", status);
 
   return {
     id,
@@ -343,8 +353,8 @@ export async function getMatchDetail(id: string): Promise<MatchDetail> {
 }
 
 export async function getClassifiedMatches(): Promise<ClassifiedMatches> {
-  // Bust old cache — use v6
-  const CACHE_KEY = "cricapi_classified_v6";
+  // Bump to v7 to bust stale cache
+  const CACHE_KEY = "cricapi_classified_v7";
   const MAX_AGE = 90_000;
 
   if (isCacheValid(CACHE_KEY, MAX_AGE)) {
@@ -405,11 +415,12 @@ export async function getClassifiedMatches(): Promise<ClassifiedMatches> {
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  // Relaxed: upcoming window +7 days, result window last 3 days
   const endDate = new Date(today);
-  endDate.setDate(today.getDate() + 5);
+  endDate.setDate(today.getDate() + 7);
   endDate.setHours(23, 59, 59, 999);
   const pastThreshold = new Date(today);
-  pastThreshold.setDate(today.getDate() - 2);
+  pastThreshold.setDate(today.getDate() - 3);
 
   const live: NormalizedMatch[] = [];
   const upcoming: NormalizedMatch[] = [];
@@ -421,6 +432,7 @@ export async function getClassifiedMatches(): Promise<ClassifiedMatches> {
     normalizedCount++;
 
     if (norm.status === "live") {
+      // Always include live matches regardless of date
       live.push(norm);
     } else if (norm.status === "upcoming") {
       if (

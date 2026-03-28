@@ -273,13 +273,31 @@ export default function LiveScorePage() {
                   </div>
                 ))}
               </div>
+            ) : seriesFilter !== "All" || typeFilter !== "All" ? (
+              <div className="text-center py-16" data-ocid="live.empty_state">
+                <p className="text-muted-foreground text-lg">No live matches</p>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Try adjusting your filters
+                </p>
+              </div>
+            ) : filteredUpcoming.length > 0 ? (
+              <div>
+                <p className="text-sm text-muted-foreground mb-3">
+                  No live matches right now — showing upcoming
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredUpcoming.slice(0, 2).map((m, i) => (
+                    <div key={m.id} data-ocid={`live.item.${i + 1}`}>
+                      <MatchCard match={m} />
+                    </div>
+                  ))}
+                </div>
+              </div>
             ) : (
               <div className="text-center py-16" data-ocid="live.empty_state">
                 <p className="text-muted-foreground text-lg">No live matches</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  {seriesFilter !== "All" || typeFilter !== "All"
-                    ? "Try adjusting your filters"
-                    : "Check back later for live scores"}
+                  Check back later for live scores
                 </p>
               </div>
             )}
@@ -302,7 +320,7 @@ export default function LiveScorePage() {
                 <p className="text-sm text-muted-foreground mt-1">
                   {seriesFilter !== "All" || typeFilter !== "All"
                     ? "Try adjusting your filters"
-                    : "No scheduled matches in the next 5 days"}
+                    : "No scheduled matches in the next 7 days"}
                 </p>
               </div>
             )}
