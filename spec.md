@@ -1,41 +1,40 @@
 # CricFlash
 
 ## Current State
-- Telegram API calls made directly from frontend (utils/telegram.ts) causing CORS errors
-- Admin panel has basic automation buttons (Fetch, Generate, Publish All)
-- No auto scheduler system
-- No duplicate prevention for article generation
-- No log system
-- Backend (Motoko) has no HTTP outcall capability
+- `cricapi.ts` fetches `/currentMatches` + `/matches`, merges, normalizes, classifies (live/upcoming/result)
+- `NormalizedMatch` has: id, team1, team2, scores, rawDate, series, seriesCategory, venue, statusText, matchType, status, matchDate, startingSoon
+- `LiveScorePage` uses STATIC SERIES_OPTIONS = ["All", "IPL", "PSL", "International", "Domestic", "Women"]
+- `MatchCard` shows: series category badge, matchType, team names + scores, statusText, series (truncated), venue, date
+- `MatchDetailPage` already calls `/match_info?id=` and shows venue, date, toss, series, scorecard tabs
+- No `/series` endpoint is used
+- Match number (e.g. "46th Match") is NOT extracted from match name
 
 ## Requested Changes (Diff)
 
 ### Add
-- Backend `sendTelegramMessage(botToken, chatId, message)` function using HTTP outcalls component
-- Auto Scheduler system in AdminPage: toggle ON/OFF, Run Now button, daily 07:00 trigger
-- `runDailyAutomation()` function: fetch → normalize → generate → publish → telegram
-- Duplicate prevention: check matchId + articleType before generating
-- Log system: lastRunTime, articlesCreated, errors — displayed in admin panel
-- Delay between bulk Telegram messages (1-2 sec)
+- `matchNumber` field to `NormalizedMatch` — extracted from `match.name` using regex (e.g. "IPL 2026, 46th Match" → "46th Match")
+- `fetchSeriesList()` function in `cricapi.ts` calling `/series?apikey=...` — returns top series (IPL, PSL, etc.)
+- Dynamic series filter in `LiveScorePage` — derive unique series labels from loaded match data instead of static array; generate options as: "All" + unique `seriesCategory` values + unique top-level series names from matches
+- Match number displayed on `MatchCard` — show "46th Match" in small text below series badge if available
+- Match description (`match.name`) shown in `MatchDetailPage` Info tab and in the header subtitle
+- Series endpoint fetched alongside match data in `MatchContext` (optional parallel fetch, non-blocking)
 
 ### Modify
-- `utils/telegram.ts`: remove all direct `fetch("https://api.telegram.org/...")` calls; replace with calls to backend canister `sendTelegramMessage`
-- `AdminPage.tsx`: wire Test button and publish flow to new backend-proxied telegram function; add scheduler UI section and log display
-- `backend.d.ts`: add `sendTelegramMessage` signature
-- `main.mo`: add sendTelegramMessage HTTP outcall function
+- `normalizeMatch()`: extract `matchNumber` from `match.name` with regex `/(\d+(?:st|nd|rd|th) Match)/i`
+- `NormalizedMatch` interface: add `matchNumber: string | null`
+- `LiveScorePage`: replace `SERIES_OPTIONS` static array with `useMemo` that derives options from `classified` data — extract unique `seriesCategory` values; also add raw series name matching for "IPL", "PSL" etc. Keep filter logic working.
+- `MatchCard`: show `matchNumber` below the series/type row if non-null (small muted text)
+- `MatchDetailPage`: in header, show `match.name` as subtitle (the full description like "IPL 2026, 46th Match"); ensure Info tab shows toss prominently
+- Cache key bumped to `v10` to flush stale data without matchNumber
 
 ### Remove
-- All direct frontend fetch calls to `api.telegram.org`
+- Nothing removed — no UI changes, no component removal
 
 ## Implementation Plan
-1. Select `http-outcalls` component
-2. Update `main.mo` to add `sendTelegramMessage` via HTTP outcalls
-3. Regenerate backend bindings (backend.d.ts)
-4. Rewrite `utils/telegram.ts` to proxy through backend canister
-5. Update `AdminPage.tsx`:
-   - Import updated telegram utilities
-   - Add Scheduler section: toggle + Run Now button
-   - Add Log section: last run time, articles created, errors
-   - Implement `runDailyAutomation()` with duplicate prevention
-   - Add setInterval scheduler (checks every minute for 07:00)
-   - Bulk Telegram sends with 1.5s delay between messages
+1. Update `NormalizedMatch` interface to add `matchNumber: string | null`
+2. Update `normalizeMatch()` to extract matchNumber from `match.name`
+3. Add `fetchSeriesList()` in `cricapi.ts`
+4. Bump cache key to `v10`
+5. Update `MatchCard` to show matchNumber
+6. Update `LiveScorePage` to use dynamic series filter derived from match data
+7. Update `MatchDetailPage` to show `match.name` as full description in header and Info tab

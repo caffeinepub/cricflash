@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Calendar, MapPin } from "lucide-react";
+import { Calendar, Clock, MapPin } from "lucide-react";
 import type { NormalizedMatch } from "../services/cricapi";
 
 interface MatchCardProps {
@@ -44,7 +44,19 @@ function formatMatchDate(date: Date | null): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function StatusBadge({ status }: { status: NormalizedMatch["status"] }) {
+function formatMatchTime(date: Date | null): string {
+  if (!date) return "";
+  return date.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
+
+function StatusBadge({
+  status,
+  startingSoon,
+}: { status: NormalizedMatch["status"]; startingSoon: boolean }) {
   if (status === "live") {
     return (
       <span className="flex items-center gap-1 bg-cric-red text-white text-xs font-bold px-2 py-0.5 rounded-full">
@@ -54,6 +66,14 @@ function StatusBadge({ status }: { status: NormalizedMatch["status"] }) {
     );
   }
   if (status === "upcoming") {
+    if (startingSoon) {
+      return (
+        <span className="flex items-center gap-1 bg-amber-500/15 text-amber-600 dark:text-amber-400 text-xs font-bold px-2 py-0.5 rounded-full">
+          <Clock className="w-3 h-3" />
+          Starting Soon
+        </span>
+      );
+    }
     return (
       <span className="text-xs font-semibold bg-green-500/15 text-green-600 dark:text-green-400 px-2 py-0.5 rounded-full">
         Upcoming
@@ -78,12 +98,14 @@ function CardContent({ match }: { match: NormalizedMatch }) {
     wickets2,
     overs2,
     status,
+    startingSoon,
     matchDate,
     venue,
     series,
     matchType,
     statusText,
     seriesCategory,
+    matchNumber,
   } = match;
 
   const bothNull = score1 === null && score2 === null;
@@ -105,12 +127,18 @@ function CardContent({ match }: { match: NormalizedMatch }) {
             </span>
           )}
         </div>
-        <StatusBadge status={status} />
+        <StatusBadge status={status} startingSoon={startingSoon} />
       </div>
 
-      {/* Teams and scores — always show both */}
+      {/* Match number (e.g. "46th Match") */}
+      {matchNumber && (
+        <p className="text-[10px] text-muted-foreground mt-0.5 mb-2">
+          {matchNumber}
+        </p>
+      )}
+
+      {/* Teams and scores */}
       <div className="space-y-2 mb-3">
-        {/* Team 1 */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-lg">{getTeamFlag(team1)}</span>
@@ -129,7 +157,6 @@ function CardContent({ match }: { match: NormalizedMatch }) {
             )}
           </span>
         </div>
-        {/* Team 2 */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-lg">{getTeamFlag(team2)}</span>
@@ -150,14 +177,12 @@ function CardContent({ match }: { match: NormalizedMatch }) {
         </div>
       </div>
 
-      {/* Match not started note */}
       {bothNull && status === "upcoming" && (
         <p className="text-xs text-muted-foreground italic mb-2">
           Match not started
         </p>
       )}
 
-      {/* Status text */}
       {statusText && (
         <p className="text-xs text-cric-red font-medium truncate mb-2">
           {statusText.slice(0, 60)}
@@ -165,7 +190,6 @@ function CardContent({ match }: { match: NormalizedMatch }) {
         </p>
       )}
 
-      {/* Series name (truncated) */}
       {series && (
         <p className="text-[10px] text-muted-foreground truncate mb-1">
           {series.slice(0, 50)}
@@ -173,12 +197,14 @@ function CardContent({ match }: { match: NormalizedMatch }) {
         </p>
       )}
 
-      {/* Meta: date / venue */}
       <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
         {matchDate && (
           <span className="flex items-center gap-1">
             <Calendar className="w-3 h-3" />
             {formatMatchDate(matchDate)}
+            {status === "upcoming" && (
+              <span className="ml-1">{formatMatchTime(matchDate)}</span>
+            )}
           </span>
         )}
         {venue && (

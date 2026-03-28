@@ -39,7 +39,7 @@ function detectSeries(name: string, series?: string): string {
   const haystack = `${series ?? ""} ${name}`.toLowerCase();
   if (haystack.includes("ipl")) return "IPL";
   if (haystack.includes("psl")) return "PSL";
-  return "International";
+  return series || "International";
 }
 
 function StatusBadge({ status }: { status: "live" | "upcoming" | "result" }) {
@@ -137,14 +137,22 @@ export default function MatchDetailPage() {
 
   if (!match) return null;
 
-  // Derive status using consistent logic with cricapi.ts normalizeMatch
+  // Derive status using consistent broad logic (matches normalizeMatch in cricapi.ts)
   const statusText = match.status || "";
   const matchDateStr = match.dateTimeGMT || match.date;
   const matchDate = matchDateStr ? new Date(matchDateStr) : null;
   const now = new Date();
+  const statusLower = statusText.toLowerCase();
 
   let matchStatus: "live" | "upcoming" | "result";
-  if (statusText.toLowerCase().includes("live")) {
+  if (
+    statusLower.includes("live") ||
+    statusLower.includes("progress") ||
+    statusLower.includes("inning") ||
+    statusLower.includes("stumps") ||
+    statusLower.includes("day") ||
+    statusLower.includes("session")
+  ) {
     matchStatus = "live";
   } else if (matchDate && matchDate > now) {
     matchStatus = "upcoming";
@@ -219,6 +227,9 @@ export default function MatchDetailPage() {
         <p className="text-sm text-muted-foreground">
           {series} · {match.matchType?.toUpperCase()}
         </p>
+        {match.name && (
+          <p className="text-xs text-muted-foreground mt-1">{match.name}</p>
+        )}
         <div className="flex flex-wrap gap-3 mt-2 text-xs text-muted-foreground">
           {localTimeStr && (
             <span className="flex items-center gap-1">
@@ -614,6 +625,17 @@ export default function MatchDetailPage() {
                     {match.tossChoice
                       ? ` and chose to ${match.tossChoice}`
                       : ""}
+                  </p>
+                </div>
+              </div>
+            )}
+            {match.name && (
+              <div className="flex items-start gap-3">
+                <span className="text-base">📋</span>
+                <div>
+                  <p className="text-xs text-muted-foreground">Match</p>
+                  <p className="text-sm text-foreground font-medium">
+                    {match.name}
                   </p>
                 </div>
               </div>

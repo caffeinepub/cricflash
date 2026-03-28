@@ -44,8 +44,13 @@ function MatchCarousel() {
   const { classified, loading } = useMatches();
   const { live, upcoming, completed } = classified;
 
-  // Show live first, then upcoming (nearest first), then most recent completed
-  const allMatches = [...live, ...upcoming, ...completed];
+  // Home: LIVE first, then nearest upcoming — limit to 5 total
+  // upcoming is already sorted by date asc from the pipeline
+  const homePool = [...live, ...upcoming];
+  const allMatches =
+    homePool.length >= 5
+      ? homePool.slice(0, 5)
+      : [...homePool, ...completed.slice(0, 5 - homePool.length)];
 
   return (
     <section className="mb-6">

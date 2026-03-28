@@ -7,20 +7,17 @@ import {
 } from "react";
 import {
   type ClassifiedMatches,
-  type MatchDebugInfo,
   type NormalizedMatch,
   getClassifiedMatches,
 } from "../services/cricapi";
 
-// Re-export for convenience
-export type { NormalizedMatch, MatchDebugInfo };
+export type { NormalizedMatch };
 
 interface MatchContextValue {
   classified: ClassifiedMatches;
   loading: boolean;
   error: string | null;
   refresh: () => void;
-  debugInfo: MatchDebugInfo | null;
 }
 
 const MatchContext = createContext<MatchContextValue>({
@@ -28,7 +25,6 @@ const MatchContext = createContext<MatchContextValue>({
   loading: true,
   error: null,
   refresh: () => {},
-  debugInfo: null,
 });
 
 export function MatchProvider({ children }: { children: React.ReactNode }) {
@@ -39,14 +35,12 @@ export function MatchProvider({ children }: { children: React.ReactNode }) {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [debugInfo, setDebugInfo] = useState<MatchDebugInfo | null>(null);
 
   const fetchMatches = useCallback(async () => {
     setError(null);
     try {
       const data = await getClassifiedMatches();
       setClassified(data);
-      setDebugInfo(data.debugInfo ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load matches");
       setClassified({
@@ -70,11 +64,12 @@ export function MatchProvider({ children }: { children: React.ReactNode }) {
             matchType: "t20",
             status: "upcoming" as const,
             matchDate: new Date(Date.now() + 86400000),
+            startingSoon: false,
+            matchNumber: null,
           },
         ],
         completed: [],
       });
-      setDebugInfo({ rawCount: 0, normalizedCount: 0, filteredCount: 0 });
     } finally {
       setLoading(false);
     }
@@ -88,7 +83,7 @@ export function MatchProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <MatchContext.Provider
-      value={{ classified, loading, error, refresh: fetchMatches, debugInfo }}
+      value={{ classified, loading, error, refresh: fetchMatches }}
     >
       {children}
     </MatchContext.Provider>
