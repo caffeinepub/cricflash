@@ -35,16 +35,14 @@ function getTeamFlag(name: string): string {
   return "🏏";
 }
 
-function detectSeries(name: string): string {
-  const n = name.toLowerCase();
-  if (n.includes("ipl")) return "IPL";
-  if (n.includes("psl")) return "PSL";
+function detectSeries(name: string, series?: string): string {
+  const haystack = `${series ?? ""} ${name}`.toLowerCase();
+  if (haystack.includes("ipl")) return "IPL";
+  if (haystack.includes("psl")) return "PSL";
   return "International";
 }
 
-function StatusBadge({
-  status,
-}: { status: "live" | "upcoming" | "completed" }) {
+function StatusBadge({ status }: { status: "live" | "upcoming" | "result" }) {
   if (status === "live") {
     return (
       <span className="inline-flex items-center gap-1.5 bg-cric-red text-white text-xs font-bold px-3 py-1 rounded-full">
@@ -139,25 +137,26 @@ export default function MatchDetailPage() {
 
   if (!match) return null;
 
-  // Derive status from data fields
-  const hasLiveScore =
-    (match.score ?? []).length > 0 && match.matchStarted && !match.matchEnded;
-  const isEnded =
-    match.matchEnded === true ||
-    /won|drawn|tied|abandoned/i.test(match.status ?? "");
-  const matchStatus: "live" | "upcoming" | "completed" = hasLiveScore
-    ? "live"
-    : isEnded
-      ? "completed"
-      : "upcoming";
-
-  const team1 = match.teams?.[0] ?? "TBA";
-  const team2 = match.teams?.[1] ?? "TBA";
-  const cleanTitle = `${team1} vs ${team2}`;
-  const series = detectSeries(match.name ?? "");
-
+  // Derive status using consistent logic with cricapi.ts normalizeMatch
+  const statusText = match.status || "";
   const matchDateStr = match.dateTimeGMT || match.date;
   const matchDate = matchDateStr ? new Date(matchDateStr) : null;
+  const now = new Date();
+
+  let matchStatus: "live" | "upcoming" | "result";
+  if (statusText.toLowerCase().includes("live")) {
+    matchStatus = "live";
+  } else if (matchDate && matchDate > now) {
+    matchStatus = "upcoming";
+  } else {
+    matchStatus = "result";
+  }
+
+  const team1 = match.teamInfo?.[0]?.name || match.teams?.[0] || "TBA";
+  const team2 = match.teamInfo?.[1]?.name || match.teams?.[1] || "TBA";
+  const cleanTitle = `${team1} vs ${team2}`;
+  const series = detectSeries(match.name ?? "", match.series);
+
   const localTimeStr = matchDate
     ? matchDate.toLocaleString("en-US", {
         weekday: "short",
@@ -168,16 +167,19 @@ export default function MatchDetailPage() {
       })
     : "";
 
-  const getTeamScores = (team: string) =>
-    (match.score ?? []).filter((s) => s.inning.startsWith(team));
+  const allScores = match.score ?? [];
 
-  const t1Scores = getTeamScores(team1);
-  const t2Scores = getTeamScores(team2);
+  // Per-team score lookup
+  const t1Scores = allScores.filter((s) =>
+    s.inning.toLowerCase().startsWith(team1.toLowerCase()),
+  );
+  const t2Scores = allScores.filter((s) =>
+    s.inning.toLowerCase().startsWith(team2.toLowerCase()),
+  );
   const latestT1 = t1Scores[t1Scores.length - 1];
   const latestT2 = t2Scores[t2Scores.length - 1];
 
   // Current innings for live tab
-  const allScores = match.score ?? [];
   const currentInnings = allScores[allScores.length - 1];
   const crr =
     currentInnings && currentInnings.o > 0
@@ -289,7 +291,7 @@ export default function MatchDetailPage() {
               className={`text-sm font-semibold text-center ${
                 matchStatus === "live"
                   ? "text-cric-red"
-                  : matchStatus === "completed"
+                  : matchStatus === "result"
                     ? "text-foreground"
                     : "text-muted-foreground"
               }`}
@@ -335,7 +337,7 @@ export default function MatchDetailPage() {
               </div>
             )}
 
-            {matchStatus === "completed" && !hasLiveScore && (
+            {matchStatus === "result" && (
               <div className="text-center py-6">
                 <Trophy className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
                 <p className="font-semibold text-foreground mb-1">
@@ -351,7 +353,6 @@ export default function MatchDetailPage() {
 
             {matchStatus === "live" && (
               <div className="space-y-4">
-                {/* Current innings score */}
                 {currentInnings && (
                   <div>
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
@@ -396,63 +397,168 @@ export default function MatchDetailPage() {
         {/* Scorecard Tab */}
         <TabsContent value="scorecard">
           <div className="bg-card border border-border rounded-xl p-4">
-            {allScores.length > 0 ? (
-              <div className="space-y-4">
-                {allScores.map((s, i) => (
-                  <div key={`${s.inning}-${i}`}>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+            {/* Always show innings summary */}
+            {allScores.length > 0 && (
+              <div className="space-y-2 mb-4">
+                {allScores.map((s) => (
+                  <div
+                    key={s.inning}
+                    className="flex items-center justify-between bg-muted/40 rounded-lg px-3 py-2"
+                  >
+                    <span className="text-sm font-medium text-foreground truncate max-w-[160px]">
                       {s.inning}
-                    </p>
-                    <div className="bg-background rounded-lg border border-border overflow-hidden">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-border bg-muted/50">
-                            <th className="text-left px-3 py-2 text-xs font-semibold text-muted-foreground">
-                              Team
-                            </th>
-                            <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground">
-                              R
-                            </th>
-                            <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground">
-                              W
-                            </th>
-                            <th className="text-right px-3 py-2 text-xs font-semibold text-muted-foreground">
-                              Overs
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr>
-                            <td className="px-3 py-2 font-medium text-foreground truncate max-w-[140px]">
-                              {s.inning.split(" Inning")[0]}
-                            </td>
-                            <td className="px-3 py-2 text-right font-bold text-foreground">
-                              {s.r}
-                            </td>
-                            <td className="px-3 py-2 text-right text-foreground">
-                              {s.w}
-                            </td>
-                            <td className="px-3 py-2 text-right text-muted-foreground">
-                              {s.o}
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
+                    </span>
+                    <span className="text-sm font-bold text-foreground">
+                      {s.r}/{s.w}{" "}
+                      <span className="text-xs text-muted-foreground font-normal">
+                        ({s.o} ov)
+                      </span>
+                    </span>
                   </div>
                 ))}
-                <p className="text-xs text-muted-foreground text-center pt-2">
-                  Detailed player scorecard not available for this match.
-                </p>
+              </div>
+            )}
+
+            {/* Full detailed scorecard if available */}
+            {match.scorecard && match.scorecard.length > 0 ? (
+              <div className="space-y-6">
+                {match.scorecard.map((innings) => {
+                  const inningsKey =
+                    innings.batting[0]?.batsman?.id ??
+                    innings.bowling[0]?.bowler?.id ??
+                    `${innings.batting.length}-${innings.bowling.length}`;
+                  return (
+                    <div key={inningsKey}>
+                      {/* Batting table */}
+                      {innings.batting && innings.batting.length > 0 && (
+                        <div className="mb-4">
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                            Batting
+                          </p>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-xs min-w-[400px]">
+                              <thead>
+                                <tr className="border-b border-border bg-muted/50">
+                                  <th className="text-left px-2 py-2 font-semibold text-muted-foreground">
+                                    Batter
+                                  </th>
+                                  <th className="text-right px-2 py-2 font-semibold text-muted-foreground">
+                                    R
+                                  </th>
+                                  <th className="text-right px-2 py-2 font-semibold text-muted-foreground">
+                                    B
+                                  </th>
+                                  <th className="text-right px-2 py-2 font-semibold text-muted-foreground">
+                                    4s
+                                  </th>
+                                  <th className="text-right px-2 py-2 font-semibold text-muted-foreground">
+                                    6s
+                                  </th>
+                                  <th className="text-right px-2 py-2 font-semibold text-muted-foreground">
+                                    SR
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {innings.batting.map((b) => (
+                                  <tr
+                                    key={b.batsman?.id ?? b.batsman?.name}
+                                    className="border-b border-border/50 last:border-0"
+                                  >
+                                    <td className="px-2 py-2 font-medium text-foreground">
+                                      {b.batsman?.name ?? "—"}
+                                    </td>
+                                    <td className="px-2 py-2 text-right font-bold text-foreground">
+                                      {b.r}
+                                    </td>
+                                    <td className="px-2 py-2 text-right text-muted-foreground">
+                                      {b.b}
+                                    </td>
+                                    <td className="px-2 py-2 text-right text-muted-foreground">
+                                      {b["4s"]}
+                                    </td>
+                                    <td className="px-2 py-2 text-right text-muted-foreground">
+                                      {b["6s"]}
+                                    </td>
+                                    <td className="px-2 py-2 text-right text-muted-foreground">
+                                      {b.sr}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                      {/* Bowling table */}
+                      {innings.bowling && innings.bowling.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                            Bowling
+                          </p>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-xs min-w-[360px]">
+                              <thead>
+                                <tr className="border-b border-border bg-muted/50">
+                                  <th className="text-left px-2 py-2 font-semibold text-muted-foreground">
+                                    Bowler
+                                  </th>
+                                  <th className="text-right px-2 py-2 font-semibold text-muted-foreground">
+                                    O
+                                  </th>
+                                  <th className="text-right px-2 py-2 font-semibold text-muted-foreground">
+                                    M
+                                  </th>
+                                  <th className="text-right px-2 py-2 font-semibold text-muted-foreground">
+                                    R
+                                  </th>
+                                  <th className="text-right px-2 py-2 font-semibold text-muted-foreground">
+                                    W
+                                  </th>
+                                  <th className="text-right px-2 py-2 font-semibold text-muted-foreground">
+                                    Econ
+                                  </th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {innings.bowling.map((bwl) => (
+                                  <tr
+                                    key={bwl.bowler?.id ?? bwl.bowler?.name}
+                                    className="border-b border-border/50 last:border-0"
+                                  >
+                                    <td className="px-2 py-2 font-medium text-foreground">
+                                      {bwl.bowler?.name ?? "—"}
+                                    </td>
+                                    <td className="px-2 py-2 text-right text-muted-foreground">
+                                      {bwl.o}
+                                    </td>
+                                    <td className="px-2 py-2 text-right text-muted-foreground">
+                                      {bwl.m}
+                                    </td>
+                                    <td className="px-2 py-2 text-right text-muted-foreground">
+                                      {bwl.r}
+                                    </td>
+                                    <td className="px-2 py-2 text-right font-bold text-foreground">
+                                      {bwl.w}
+                                    </td>
+                                    <td className="px-2 py-2 text-right text-muted-foreground">
+                                      {bwl.eco}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ) : (
-              <div className="text-center py-8">
-                <p className="text-sm text-muted-foreground">
-                  {matchStatus === "upcoming"
-                    ? "Scorecard will be available once the match begins."
-                    : "Detailed scorecard not available for this match."}
-                </p>
-              </div>
+              <p className="text-xs text-muted-foreground text-center pt-2 italic">
+                Detailed scorecard not available
+              </p>
             )}
           </div>
         </TabsContent>

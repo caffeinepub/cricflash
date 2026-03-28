@@ -12,6 +12,7 @@ export interface CricMatch {
   teams: string[];
   teamInfo?: { name: string; shortname: string; img: string }[];
   score?: { r: number; w: number; o: number; inning: string }[];
+  series?: string;
   series_id?: string;
   fantasyEnabled?: boolean;
   bbbEnabled?: boolean;
@@ -20,34 +21,104 @@ export interface CricMatch {
   matchEnded?: boolean;
 }
 
+export interface ScorecardBatter {
+  batsman: { name: string; id: string };
+  r: number;
+  b: number;
+  "4s": number;
+  "6s": number;
+  sr: string;
+  "dismissal-text"?: string;
+}
+
+export interface ScorecardBowler {
+  bowler: { name: string; id: string };
+  o: number;
+  m: number;
+  r: number;
+  w: number;
+  nb?: number;
+  wd?: number;
+  eco: string;
+}
+
+export interface ScorecardInnings {
+  batting: ScorecardBatter[];
+  bowling: ScorecardBowler[];
+}
+
 export interface MatchDetail extends CricMatch {
   players?: { name: string; id: string }[];
   tossChoice?: string;
   tossWinner?: string;
   matchWinner?: string;
+  scorecard?: ScorecardInnings[];
 }
 
 export interface NormalizedMatch {
   id: string;
   team1: string;
   team2: string;
-  score1: string;
-  score2: string;
-  overs1: string;
-  overs2: string;
-  status: "live" | "completed" | "upcoming";
-  date: Date | null;
-  venue: string;
+  score1: number | null;
+  wickets1: number | null;
+  overs1: number | null;
+  score2: number | null;
+  wickets2: number | null;
+  overs2: number | null;
+  rawDate: string;
   series: string;
-  matchType: string;
+  seriesCategory: "IPL" | "PSL" | "International" | "Domestic" | "Women";
+  venue: string;
   statusText: string;
-  raw: CricMatch;
+  matchType: string;
+  status: "live" | "upcoming" | "result";
+  matchDate: Date | null;
 }
 
 export interface ClassifiedMatches {
   live: NormalizedMatch[];
   upcoming: NormalizedMatch[];
   completed: NormalizedMatch[];
+}
+
+const COUNTRY_NAMES = [
+  "india",
+  "australia",
+  "england",
+  "pakistan",
+  "south africa",
+  "new zealand",
+  "west indies",
+  "bangladesh",
+  "sri lanka",
+  "afghanistan",
+  "zimbabwe",
+  "ireland",
+  "netherlands",
+  "scotland",
+  "nepal",
+  "oman",
+  "uae",
+  "namibia",
+  "canada",
+  "kenya",
+  "usa",
+  "singapore",
+  "malaysia",
+  "hong kong",
+];
+
+function detectSeriesCategory(
+  series: string,
+): NormalizedMatch["seriesCategory"] {
+  const s = series.toLowerCase();
+  if (s.includes("ipl")) return "IPL";
+  if (s.includes("psl")) return "PSL";
+  if (s.includes("women") || s.includes("woman")) return "Women";
+  for (const country of COUNTRY_NAMES) {
+    if (s.includes(country)) return "International";
+  }
+  return "Domestic";
 }
 
 interface CacheEntry<T> {
@@ -95,6 +166,161 @@ async function fetchAPI<T>(endpoint: string): Promise<T> {
   return json.data as T;
 }
 
+export function normalizeMatch(match: CricMatch): NormalizedMatch {
+  const id = match.id;
+  const team1 = match.teamInfo?.[0]?.name || match.teams?.[0] || "TBA";
+  const team2 = match.teamInfo?.[1]?.name || match.teams?.[1] || "TBA";
+
+  const score1 = match.score?.[0]?.r ?? null;
+  const wickets1 = match.score?.[0]?.w ?? null;
+  const overs1 = match.score?.[0]?.o ?? null;
+
+  const score2 = match.score?.[1]?.r ?? null;
+  const wickets2 = match.score?.[1]?.w ?? null;
+  const overs2 = match.score?.[1]?.o ?? null;
+
+  const rawDate = match.dateTimeGMT || match.date || "";
+  const series = match.series || match.name || "";
+  const venue = match.venue || "";
+  const statusText = match.status || "";
+  const matchType = (match.matchType || "").toLowerCase();
+  const seriesCategory = detectSeriesCategory(series);
+
+  const matchDate = rawDate ? new Date(rawDate) : null;
+  const now = new Date();
+
+  let status: NormalizedMatch["status"];
+  if (statusText.toLowerCase().includes("live")) {
+    status = "live";
+  } else if (matchDate && matchDate > now) {
+    status = "upcoming";
+  } else {
+    status = "result";
+  }
+
+  return {
+    id,
+    team1,
+    team2,
+    score1,
+    wickets1,
+    overs1,
+    score2,
+    wickets2,
+    overs2,
+    rawDate,
+    series,
+    seriesCategory,
+    venue,
+    statusText,
+    matchType,
+    status,
+    matchDate,
+  };
+}
+
+export async function getMatchDetail(id: string): Promise<MatchDetail> {
+  return fetchAPI<MatchDetail>(`/match_info?apikey=${API_KEY}&id=${id}`);
+}
+
+export async function getClassifiedMatches(): Promise<ClassifiedMatches> {
+  const CACHE_KEY = "cricapi_classified_v4";
+  const MAX_AGE = 90_000;
+  if (isCacheValid(CACHE_KEY, MAX_AGE)) {
+    const cached = readCache<ClassifiedMatches>(CACHE_KEY);
+    if (cached) {
+      const rehydrate = (matches: NormalizedMatch[]) =>
+        matches.map((m) => ({
+          ...m,
+          matchDate: m.matchDate
+            ? new Date(m.matchDate as unknown as string)
+            : null,
+        }));
+      return {
+        live: rehydrate(cached.live),
+        upcoming: rehydrate(cached.upcoming),
+        completed: rehydrate(cached.completed),
+      };
+    }
+  }
+
+  const [currentData, matchesData] = await Promise.all([
+    fetchAPI<CricMatch[]>(`/currentMatches?apikey=${API_KEY}&offset=0`).catch(
+      () => [] as CricMatch[],
+    ),
+    fetchAPI<CricMatch[]>(`/matches?apikey=${API_KEY}&offset=0`).catch(
+      () => [] as CricMatch[],
+    ),
+  ]);
+
+  // Deduplicate — currentMatches takes priority (has live data)
+  const seen = new Map<string, CricMatch>();
+  for (const m of currentData) seen.set(m.id, m);
+  for (const m of matchesData) {
+    if (!seen.has(m.id)) seen.set(m.id, m);
+  }
+
+  const totalMatches = seen.size;
+
+  // Date window
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const endDate = new Date(today);
+  endDate.setDate(today.getDate() + 5);
+  endDate.setHours(23, 59, 59, 999);
+  const pastThreshold = new Date(today);
+  pastThreshold.setDate(today.getDate() - 3);
+
+  const live: NormalizedMatch[] = [];
+  const upcoming: NormalizedMatch[] = [];
+  const completed: NormalizedMatch[] = [];
+
+  for (const m of seen.values()) {
+    const norm = normalizeMatch(m);
+    if (norm.status === "live") {
+      live.push(norm);
+    } else if (norm.status === "upcoming") {
+      // Only today → today+5
+      if (
+        norm.matchDate &&
+        norm.matchDate >= today &&
+        norm.matchDate <= endDate
+      ) {
+        upcoming.push(norm);
+      }
+    } else {
+      // Result: allow last 3 days
+      if (norm.matchDate && norm.matchDate >= pastThreshold) {
+        completed.push(norm);
+      }
+    }
+  }
+
+  const afterDateFilter = live.length + upcoming.length + completed.length;
+
+  // Sorting
+  upcoming.sort(
+    (a, b) => (a.matchDate?.getTime() ?? 0) - (b.matchDate?.getTime() ?? 0),
+  );
+  completed.sort(
+    (a, b) => (b.matchDate?.getTime() ?? 0) - (a.matchDate?.getTime() ?? 0),
+  );
+
+  const sampleMatch = [...live, ...upcoming, ...completed][0] ?? null;
+
+  console.log("[CricFlash Debug]", {
+    totalMatches,
+    afterDateFilter,
+    afterCategoryFilter: afterDateFilter, // category filter is UI-side
+    sampleMatch,
+  });
+
+  const result: ClassifiedMatches = { live, upcoming, completed };
+  writeCache(CACHE_KEY, result);
+  return result;
+}
+
+// Legacy helpers — still used by LiveTicker, SearchOverlay, UpcomingMatchesPage
 export async function getLiveMatches(): Promise<CricMatch[]> {
   const CACHE_KEY = "cricapi_live_matches";
   const MAX_AGE = 90_000;
@@ -119,164 +345,4 @@ export async function getUpcomingMatches(): Promise<CricMatch[]> {
   );
   writeCache(CACHE_KEY, data);
   return data;
-}
-
-export async function getMatchDetail(id: string): Promise<MatchDetail> {
-  return fetchAPI<MatchDetail>(`/match_info?apikey=${API_KEY}&id=${id}`);
-}
-
-/**
- * Normalize a raw CricAPI match into a structured format.
- * Status is derived from data fields — not blindly trusted from API.
- */
-export function normalizeMatch(m: CricMatch): NormalizedMatch {
-  const teams = m.teams ?? [];
-  const team1 = teams[0] ?? "TBA";
-  const team2 = teams[1] ?? "TBA";
-
-  // Extract per-team scores from score array
-  const t1Scores = (m.score ?? []).filter((s) => s.inning.startsWith(team1));
-  const t2Scores = (m.score ?? []).filter((s) => s.inning.startsWith(team2));
-
-  const latestT1 = t1Scores[t1Scores.length - 1];
-  const latestT2 = t2Scores[t2Scores.length - 1];
-
-  const score1 = latestT1 ? `${latestT1.r}/${latestT1.w}` : "";
-  const score2 = latestT2 ? `${latestT2.r}/${latestT2.w}` : "";
-  const overs1 = latestT1 ? String(latestT1.o) : "";
-  const overs2 = latestT2 ? String(latestT2.o) : "";
-
-  // Determine status from data, NOT blindly from API status field
-  const hasLiveScore =
-    (m.score ?? []).length > 0 && m.matchStarted && !m.matchEnded;
-  const isEnded =
-    m.matchEnded === true || /won|drawn|tied|abandoned/i.test(m.status ?? "");
-  const dateStr = m.dateTimeGMT || m.date;
-  const matchDate = dateStr ? new Date(dateStr) : null;
-
-  let status: "live" | "completed" | "upcoming";
-  if (hasLiveScore) {
-    status = "live";
-  } else if (isEnded) {
-    status = "completed";
-  } else if (matchDate && matchDate > new Date()) {
-    status = "upcoming";
-  } else {
-    status = "completed"; // past with no score = treat as completed
-  }
-
-  // Detect series category reliably
-  const nameLower = (m.name ?? "").toLowerCase();
-  let series = "International";
-  if (nameLower.includes("ipl")) series = "IPL";
-  else if (nameLower.includes("psl")) series = "PSL";
-
-  return {
-    id: m.id,
-    team1,
-    team2,
-    score1,
-    score2,
-    overs1,
-    overs2,
-    status,
-    date: matchDate,
-    venue: m.venue || "",
-    series,
-    matchType: m.matchType?.toUpperCase() || "",
-    statusText: m.status || "",
-    raw: m,
-  };
-}
-
-/**
- * Fetch all matches from CricAPI exactly once, deduplicate, normalize, classify, and sort.
- * Upcoming matches are filtered to today → today+5 days.
- */
-export async function getClassifiedMatches(): Promise<ClassifiedMatches> {
-  const CACHE_KEY = "cricapi_classified_v3";
-  const MAX_AGE = 90_000;
-  if (isCacheValid(CACHE_KEY, MAX_AGE)) {
-    const cached = readCache<ClassifiedMatches>(CACHE_KEY);
-    if (cached) {
-      // Rehydrate dates (parsed from JSON as strings)
-      const rehydrate = (matches: NormalizedMatch[]) =>
-        matches.map((m) => ({
-          ...m,
-          date: m.date ? new Date(m.date) : null,
-        }));
-      return {
-        live: rehydrate(cached.live),
-        upcoming: rehydrate(cached.upcoming),
-        completed: rehydrate(cached.completed),
-      };
-    }
-  }
-
-  const [currentData, matchesData] = await Promise.all([
-    fetchAPI<CricMatch[]>(`/currentMatches?apikey=${API_KEY}&offset=0`).catch(
-      () => [] as CricMatch[],
-    ),
-    fetchAPI<CricMatch[]>(`/matches?apikey=${API_KEY}&offset=0`).catch(
-      () => [] as CricMatch[],
-    ),
-  ]);
-
-  // Deduplicate by id — currentMatches takes priority (has live score data)
-  const seen = new Map<string, CricMatch>();
-  for (const m of currentData) seen.set(m.id, m);
-  for (const m of matchesData) {
-    if (!seen.has(m.id)) seen.set(m.id, m);
-  }
-
-  const live: NormalizedMatch[] = [];
-  const upcoming: NormalizedMatch[] = [];
-  const completed: NormalizedMatch[] = [];
-
-  // Date window for upcoming matches
-  const now = new Date();
-  const startOfToday = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-    0,
-    0,
-    0,
-  );
-  const endDate = new Date(startOfToday);
-  endDate.setDate(endDate.getDate() + 5);
-  endDate.setHours(23, 59, 59, 999);
-
-  for (const m of seen.values()) {
-    const norm = normalizeMatch(m);
-    if (norm.status === "live") {
-      live.push(norm);
-    } else if (norm.status === "completed") {
-      completed.push(norm);
-    } else {
-      // Filter upcoming to today → today+5 days
-      const d = norm.date;
-      if (d && d >= startOfToday && d <= endDate) {
-        upcoming.push(norm);
-      }
-    }
-  }
-
-  // Upcoming: nearest first
-  upcoming.sort((a, b) => {
-    const da = a.date?.getTime() ?? 0;
-    const db = b.date?.getTime() ?? 0;
-    return da - db;
-  });
-
-  // Completed: most recent first
-  completed.sort((a, b) => {
-    const da = a.date?.getTime() ?? 0;
-    const db = b.date?.getTime() ?? 0;
-    return db - da;
-  });
-
-  const result: ClassifiedMatches = { live, upcoming, completed };
-  writeCache(CACHE_KEY, result);
-  return result;
 }

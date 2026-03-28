@@ -31,17 +31,22 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   AlertCircle,
+  ChevronDown,
+  ChevronUp,
   Edit,
   Eye,
   EyeOff,
   FileText,
+  Globe,
   Loader2,
   LogIn,
   Plus,
+  RefreshCw,
   Star,
   Tag,
   Trash2,
   X,
+  Zap,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -53,6 +58,10 @@ import {
   useUpdateArticle,
 } from "../hooks/useQueries";
 import { useSimpleAuth } from "../hooks/useSimpleAuth";
+import {
+  type NormalizedMatch,
+  getClassifiedMatches,
+} from "../services/cricapi";
 
 function formatDate(createdAt: bigint): string {
   const ms = Number(createdAt) / 1_000_000;
@@ -66,6 +75,251 @@ function generateSlug(title: string): string {
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
     .trim();
+}
+
+function matchSlug(team1: string, team2: string, suffix: string): string {
+  const t1 = team1
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
+  const t2 = team2
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
+  return `${t1}-vs-${t2}-${suffix}-${new Date().getFullYear()}`;
+}
+
+function formatMatchDate(d: Date | null): string {
+  if (!d) return "Date TBA";
+  return d.toLocaleDateString("en-IN", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+}
+
+function getArticleCategory(series: string): string {
+  const s = series.toLowerCase();
+  if (s.includes("ipl")) return "IPL";
+  if (s.includes("psl")) return "PSL";
+  return "International";
+}
+
+type ArticleType = "dream11" | "prediction" | "pitchReport" | "playingXI";
+
+function buildArticlePayload(
+  match: NormalizedMatch,
+  type: ArticleType,
+): {
+  title: string;
+  slug: string;
+  content: string;
+  category: string;
+  tags: string[];
+  excerpt: string;
+  status: string;
+  featured: boolean;
+  imageUrl: string;
+  excerpt_short: string;
+} {
+  const { team1, team2, venue, matchDate, matchType, series } = match;
+  const year = new Date().getFullYear();
+  const formattedDate = formatMatchDate(matchDate);
+  const category = getArticleCategory(series);
+  const tags = [team1, team2, matchType.toUpperCase(), category].filter(
+    Boolean,
+  );
+
+  let title = "";
+  let slug = "";
+  let content = "";
+
+  if (type === "dream11") {
+    title = `${team1} vs ${team2} Dream11 Prediction ${year}: Best Team & Tips`;
+    slug = matchSlug(team1, team2, "dream11-prediction");
+    content = `## ${team1} vs ${team2} Dream11 Prediction ${year}
+
+The much-awaited clash between ${team1} and ${team2} is set to take place at ${venue} on ${formattedDate}. Here is our Dream11 prediction and best team tips for this ${matchType} match.
+
+## Match Details
+- **Match:** ${team1} vs ${team2}
+- **Date:** ${formattedDate}
+- **Venue:** ${venue}
+- **Match Type:** ${matchType}
+- **Series:** ${series}
+
+## Pitch Report
+The ${venue} pitch typically offers assistance to both batters and bowlers. Expect a competitive surface with some early movement for pacers. As the match progresses, the pitch may ease out and favor the batters.
+
+## Probable Playing XI
+
+**${team1}:**
+Players are yet to be confirmed. Check the official team announcement closer to match time.
+
+**${team2}:**
+Players are yet to be confirmed. Check the official team announcement closer to match time.
+
+## Dream11 Prediction Tips
+
+1. Pick 3-4 top-order batters from both teams
+2. Include 1-2 all-rounders for extra flexibility
+3. Pick your team captain from in-form batters
+4. Include at least 2 specialist bowlers
+5. Monitor team news and toss results before finalizing your team
+
+## Best Dream11 Team
+
+**Captain:** Best batter in current form  
+**Vice-Captain:** Top all-rounder
+
+**Batters (4):** Top 4 available batters  
+**All-rounders (2):** Best 2 all-rounders  
+**Wicket-keeper (1):** Team wicket-keeper  
+**Bowlers (4):** Top wicket-taking bowlers
+
+## Conclusion
+This promises to be an exciting contest between ${team1} and ${team2}. Choose your Dream11 team wisely and good luck!`;
+  } else if (type === "prediction") {
+    title = `${team1} vs ${team2} Match Prediction ${year}: Who Will Win Today?`;
+    slug = matchSlug(team1, team2, "match-prediction");
+    content = `## ${team1} vs ${team2} Match Prediction ${year}
+
+## Match Overview
+${team1} and ${team2} are set for an exciting ${matchType} clash. Here is our expert match prediction for this fixture.
+
+## Match Details
+- **Match:** ${team1} vs ${team2}
+- **Date:** ${formattedDate}
+- **Venue:** ${venue}
+- **Match Type:** ${matchType}
+- **Series:** ${series}
+
+## Head to Head
+Both ${team1} and ${team2} have had competitive encounters in recent years. The head-to-head record is closely contested, making this match difficult to call.
+
+## Team Form
+**${team1}:** Coming into this match with recent competitive performances. The team will look to build on their previous outings.
+
+**${team2}:** A formidable side that has been consistent in their recent campaigns. They will be keen to put in a strong performance.
+
+## Key Players
+Watch out for top performers from both sides who can turn the game with a single performance. Key batters, bowlers, and all-rounders will play a crucial role.
+
+## Pitch and Conditions
+The ${venue} pitch is expected to be sporting. Weather conditions should be suitable for a full match to be played.
+
+## Our Prediction
+This is expected to be a closely fought match. Both teams have quality players who can make a difference on their day. Based on current form and conditions, both sides have a realistic chance of winning.
+
+## Conclusion
+Stay tuned for the live score and match updates. May the best team win!`;
+  } else if (type === "pitchReport") {
+    const venueSlug = venue
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "");
+    title = `${venue} Pitch Report: ${team1} vs ${team2} ${year}`;
+    slug = `${venueSlug}-pitch-report-${matchSlug(team1, team2, "").replace(
+      /-$/,
+      "",
+    )}-${year}`;
+    content = `## ${venue} Pitch Report for ${team1} vs ${team2}
+
+## Venue Overview
+${venue} is a well-known cricket ground that has hosted numerous international and domestic matches. The pitch here is known for its balanced nature, offering something for both batters and bowlers.
+
+## Pitch Characteristics
+- **Surface:** Good batting surface with some early pace
+- **Bounce:** Medium to high, consistent throughout
+- **Swing:** Moderate swing conditions in overcast weather
+- **Turn:** Minimal in the early stages, may develop later
+- **Dew Factor:** Evening matches may see dew affecting the surface
+
+## Historical Stats at ${venue}
+The pitch at ${venue} has historically produced competitive scores. Batting first or second, both teams have had success at this venue.
+
+## Expected Conditions
+The track is expected to be good for batting initially. Pacers will find some assistance in the powerplay overs, while spinners may come into play in the latter half of the innings.
+
+## Fantasy Tips Based on Pitch
+- Prefer batters who like to play on good surfaces
+- Include a mix of pace and spin bowlers
+- The toss could play an important role; winning the toss and batting first is often preferred here
+
+## Conclusion
+Overall, the ${venue} pitch promises to provide an exciting match between ${team1} and ${team2}. Expect a high-scoring affair with wickets spread throughout the innings.`;
+  } else {
+    title = `${team1} vs ${team2} Predicted Playing XI ${year}`;
+    slug = matchSlug(team1, team2, "playing-xi");
+    content = `## ${team1} vs ${team2} Predicted Playing XI ${year}
+
+## Match Details
+- **Match:** ${team1} vs ${team2}
+- **Date:** ${formattedDate}
+- **Venue:** ${venue}
+- **Match Type:** ${matchType}
+
+## ${team1} Predicted Playing XI
+
+The following is the probable playing XI for ${team1} based on recent team selections and squad announcements:
+
+1. Opening batter (right-handed)
+2. Opening batter (left-handed)
+3. Top-order batter
+4. Middle-order batter (captain)
+5. Middle-order batter
+6. All-rounder (batting)
+7. Wicket-keeper batter
+8. All-rounder (bowling)
+9. Pace bowler
+10. Pace bowler
+11. Spinner
+
+**Captain:** TBA | **Vice-Captain:** TBA
+
+## ${team2} Predicted Playing XI
+
+The following is the probable playing XI for ${team2} based on recent team selections and squad announcements:
+
+1. Opening batter
+2. Opening batter
+3. Top-order batter (captain)
+4. Middle-order batter
+5. Middle-order batter
+6. Wicket-keeper batter
+7. All-rounder
+8. All-rounder
+9. Pace bowler
+10. Pace bowler
+11. Spinner
+
+**Captain:** TBA | **Vice-Captain:** TBA
+
+## Key Inclusions and Exclusions
+Watch out for last-minute team changes and injury updates. Check the official team announcements 30 minutes before the match for the confirmed Playing XI.
+
+## Fantasy Picks Based on Playing XI
+Once the official XI is announced, pick your fantasy team wisely. Focus on in-form players and those with good records at the venue.`;
+  }
+
+  const excerpt = content
+    .replace(/##[^\n]*/g, "")
+    .trim()
+    .slice(0, 200);
+
+  return {
+    title,
+    slug,
+    content,
+    category,
+    tags,
+    excerpt,
+    excerpt_short: excerpt,
+    status: "draft",
+    featured: false,
+    imageUrl: "",
+  };
 }
 
 function LoginForm() {
@@ -228,6 +482,160 @@ export default function AdminPage() {
   const updateArticleMutation = useUpdateArticle();
   const deleteArticleMutation = useDeleteArticle();
 
+  // ── Automation state ──────────────────────────────────────────────────────
+  const [fetchedMatches, setFetchedMatches] = useState<NormalizedMatch[]>(
+    () => {
+      try {
+        const raw = localStorage.getItem("cricflash_admin_matches");
+        if (!raw) return [];
+        // rehydrate matchDate
+        return (JSON.parse(raw) as NormalizedMatch[]).map((m) => ({
+          ...m,
+          matchDate: m.matchDate
+            ? new Date(m.matchDate as unknown as string)
+            : null,
+        }));
+      } catch {
+        return [];
+      }
+    },
+  );
+  const [isFetchingMatches, setIsFetchingMatches] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [automationLog, setAutomationLog] = useState<string[]>([]);
+  const [matchListOpen, setMatchListOpen] = useState(false);
+
+  const addLog = (msg: string) =>
+    setAutomationLog((prev) => [
+      `[${new Date().toLocaleTimeString()}] ${msg}`,
+      ...prev.slice(0, 49),
+    ]);
+
+  const handleFetchMatches = async () => {
+    setIsFetchingMatches(true);
+    try {
+      const classified = await getClassifiedMatches();
+      // Store raw for debugging
+      localStorage.setItem("cricflash_admin_raw", JSON.stringify(classified));
+      // Flatten + deduplicate
+      const all = [
+        ...classified.live,
+        ...classified.upcoming,
+        ...classified.completed,
+      ];
+      const seen = new Map<string, NormalizedMatch>();
+      for (const m of all) seen.set(m.id, m);
+      const deduped = Array.from(seen.values());
+      setFetchedMatches(deduped);
+      localStorage.setItem("cricflash_admin_matches", JSON.stringify(deduped));
+      const sampleMatch = deduped[0] ?? null;
+      const logMsg = `Fetched: total=${deduped.length} (live=${classified.live.length}, upcoming=${classified.upcoming.length}, results=${classified.completed.length})`;
+      addLog(logMsg);
+      console.log("[Admin Automation]", {
+        totalFetched: deduped.length,
+        afterFilter: deduped.length,
+        sampleMatch,
+      });
+      toast.success(`Fetched ${deduped.length} matches successfully!`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog(`Fetch failed: ${msg}`);
+      toast.error(`Failed to fetch matches: ${msg}`);
+    } finally {
+      setIsFetchingMatches(false);
+    }
+  };
+
+  const handleGenerateArticles = async () => {
+    if (fetchedMatches.length === 0) {
+      toast.error("No matches fetched. Click Fetch Matches first.");
+      return;
+    }
+    setIsGenerating(true);
+    const types: ArticleType[] = [
+      "dream11",
+      "prediction",
+      "pitchReport",
+      "playingXI",
+    ];
+    let generated = 0;
+    let skipped = 0;
+    try {
+      for (const match of fetchedMatches) {
+        for (const type of types) {
+          const payload = buildArticlePayload(match, type);
+          // Duplicate check by slug
+          const exists = articles.some((a) => a.slug === payload.slug);
+          if (exists) {
+            skipped++;
+            continue;
+          }
+          await createArticleMutation.mutateAsync({
+            title: payload.title,
+            content: payload.content,
+            category: payload.category,
+            imageUrl: payload.imageUrl,
+            slug: payload.slug,
+            status: payload.status,
+            featured: payload.featured,
+            excerpt: payload.excerpt,
+            tags: payload.tags,
+          });
+          generated++;
+        }
+      }
+      addLog(`Generated ${generated} articles, skipped ${skipped} duplicates.`);
+      toast.success(
+        `Generated ${generated} articles! (${skipped} duplicates skipped)`,
+      );
+      await refetchArticles();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog(`Generation error: ${msg}`);
+      toast.error(`Article generation failed: ${msg}`);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const handlePublishAll = async () => {
+    const drafts = articles.filter((a) => a.status === "draft");
+    if (drafts.length === 0) {
+      toast.info("No draft articles to publish.");
+      return;
+    }
+    setIsPublishing(true);
+    let published = 0;
+    try {
+      for (const article of drafts) {
+        await updateArticleMutation.mutateAsync({
+          id: article.id,
+          title: article.title,
+          content: article.content,
+          category: article.category || "General",
+          imageUrl: article.imageUrl || "",
+          slug: article.slug || generateSlug(article.title),
+          status: "published",
+          featured: article.featured ?? false,
+          excerpt: article.excerpt ?? "",
+          tags: article.tags ?? [],
+        });
+        published++;
+      }
+      addLog(`Published ${published} articles.`);
+      toast.success(`Published ${published} articles!`);
+      await refetchArticles();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addLog(`Publish error: ${msg}`);
+      toast.error(`Failed to publish: ${msg}`);
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  // ── Article form state ────────────────────────────────────────────────────
   const [formTitle, setFormTitle] = useState("");
   const [formContent, setFormContent] = useState("");
   const [formCategory, setFormCategory] = useState("General");
@@ -353,6 +761,11 @@ export default function AdminPage() {
 
   const isSaving =
     createArticleMutation.isPending || updateArticleMutation.isPending;
+  const anyAutomationRunning =
+    isFetchingMatches || isGenerating || isPublishing;
+  const publishedCount = articles.filter(
+    (a) => a.status === "published",
+  ).length;
 
   if (!isAdmin) {
     return <LoginForm />;
@@ -366,6 +779,191 @@ export default function AdminPage() {
           Manage CricFlash articles and content
         </p>
       </div>
+
+      {/* ── Automation Dashboard ─────────────────────────────────────────── */}
+      <div
+        className="bg-card border border-border rounded-2xl p-6 mb-8"
+        data-ocid="admin.panel"
+      >
+        <div className="flex items-center gap-2 mb-1">
+          <Zap className="w-5 h-5 text-cric-red" />
+          <h2 className="text-lg font-bold text-foreground">
+            Content Automation
+          </h2>
+        </div>
+        <p className="text-sm text-muted-foreground mb-5">
+          Fetch live matches from CricAPI, auto-generate articles, and publish
+          in one click.
+        </p>
+
+        {/* Stats row */}
+        <div className="grid grid-cols-3 gap-3 mb-5">
+          <div className="bg-background border border-border rounded-xl p-4 text-center">
+            <div className="text-2xl font-extrabold text-foreground">
+              {fetchedMatches.length}
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5 flex items-center justify-center gap-1">
+              <RefreshCw className="w-3 h-3" />
+              Matches Fetched
+            </div>
+          </div>
+          <div className="bg-background border border-border rounded-xl p-4 text-center">
+            <div className="text-2xl font-extrabold text-foreground">
+              {articles.length}
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5 flex items-center justify-center gap-1">
+              <FileText className="w-3 h-3" />
+              Articles Generated
+            </div>
+          </div>
+          <div className="bg-background border border-border rounded-xl p-4 text-center">
+            <div className="text-2xl font-extrabold text-cric-red">
+              {publishedCount}
+            </div>
+            <div className="text-xs text-muted-foreground mt-0.5 flex items-center justify-center gap-1">
+              <Globe className="w-3 h-3" />
+              Published
+            </div>
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex flex-wrap gap-3 mb-4">
+          <Button
+            onClick={handleFetchMatches}
+            disabled={anyAutomationRunning}
+            className="bg-cric-red hover:bg-red-700 text-white border-0 flex-1 sm:flex-none"
+            data-ocid="admin.primary_button"
+          >
+            {isFetchingMatches ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Fetching...
+              </>
+            ) : (
+              <>
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Fetch Matches
+              </>
+            )}
+          </Button>
+
+          <Button
+            onClick={handleGenerateArticles}
+            disabled={anyAutomationRunning || fetchedMatches.length === 0}
+            variant="outline"
+            className="flex-1 sm:flex-none"
+            data-ocid="admin.secondary_button"
+          >
+            {isGenerating ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <Zap className="w-4 h-4 mr-2" />
+                Generate Articles
+              </>
+            )}
+          </Button>
+
+          <Button
+            onClick={handlePublishAll}
+            disabled={
+              anyAutomationRunning ||
+              articles.filter((a) => a.status === "draft").length === 0
+            }
+            variant="outline"
+            className="flex-1 sm:flex-none"
+            data-ocid="admin.secondary_button"
+          >
+            {isPublishing ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Publishing...
+              </>
+            ) : (
+              <>
+                <Globe className="w-4 h-4 mr-2" />
+                Publish All
+              </>
+            )}
+          </Button>
+        </div>
+
+        {/* Fetched matches collapsible */}
+        {fetchedMatches.length > 0 && (
+          <div className="border border-border rounded-xl overflow-hidden">
+            <button
+              type="button"
+              className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:bg-muted/40 transition-colors"
+              onClick={() => setMatchListOpen((v) => !v)}
+              data-ocid="admin.toggle"
+            >
+              <span>Fetched Matches ({fetchedMatches.length})</span>
+              {matchListOpen ? (
+                <ChevronUp className="w-4 h-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
+              )}
+            </button>
+            {matchListOpen && (
+              <div className="border-t border-border bg-background max-h-48 overflow-y-auto">
+                {fetchedMatches.map((m, i) => (
+                  <div
+                    key={m.id}
+                    className="flex items-center justify-between px-4 py-2 border-b border-border/50 last:border-b-0 text-sm"
+                    data-ocid={`admin.item.${i + 1}`}
+                  >
+                    <span className="text-foreground font-medium truncate">
+                      {m.team1} vs {m.team2}
+                    </span>
+                    <div className="flex items-center gap-2 shrink-0 ml-2">
+                      <Badge
+                        variant="secondary"
+                        className={`text-xs border-0 ${
+                          m.status === "live"
+                            ? "bg-red-500/15 text-red-500"
+                            : m.status === "upcoming"
+                              ? "bg-green-500/15 text-green-600"
+                              : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {m.status.toUpperCase()}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {m.seriesCategory}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Automation log */}
+        {automationLog.length > 0 && (
+          <div className="mt-4 bg-muted/40 rounded-xl p-3">
+            <p className="text-xs font-semibold text-muted-foreground mb-2">
+              Automation Log
+            </p>
+            <div className="space-y-0.5 max-h-24 overflow-y-auto">
+              {automationLog.map((log) => (
+                <p
+                  key={log}
+                  className="text-xs text-muted-foreground font-mono"
+                >
+                  {log}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Existing form + article list ─────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Article Form */}
         <div className="bg-card border border-border rounded-2xl p-6">

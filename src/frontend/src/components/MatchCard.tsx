@@ -72,27 +72,33 @@ function CardContent({ match }: { match: NormalizedMatch }) {
     team1,
     team2,
     score1,
-    score2,
+    wickets1,
     overs1,
+    score2,
+    wickets2,
     overs2,
     status,
-    date,
+    matchDate,
     venue,
     series,
     matchType,
     statusText,
+    seriesCategory,
   } = match;
+
+  const bothNull = score1 === null && score2 === null;
 
   return (
     <div className="bg-card border border-border rounded-xl p-4 shadow-card hover:border-cric-border transition-colors">
       {/* Top row: series/type + status badge */}
       <div className="flex items-start justify-between mb-3">
         <div className="flex items-center gap-1.5">
-          {series !== "International" && (
-            <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-600 dark:text-orange-400">
-              {series}
-            </span>
-          )}
+          {seriesCategory !== "International" &&
+            seriesCategory !== "Domestic" && (
+              <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-orange-500/15 text-orange-600 dark:text-orange-400">
+                {seriesCategory}
+              </span>
+            )}
           {matchType && (
             <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               {matchType}
@@ -102,8 +108,9 @@ function CardContent({ match }: { match: NormalizedMatch }) {
         <StatusBadge status={status} />
       </div>
 
-      {/* Teams and scores */}
+      {/* Teams and scores — always show both */}
       <div className="space-y-2 mb-3">
+        {/* Team 1 */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-lg">{getTeamFlag(team1)}</span>
@@ -111,17 +118,18 @@ function CardContent({ match }: { match: NormalizedMatch }) {
               {team1}
             </span>
           </div>
-          {score1 && (
-            <span className="text-sm font-bold text-foreground">
-              {score1}
-              {overs1 && (
-                <span className="text-xs text-muted-foreground font-normal ml-1">
-                  ({overs1})
-                </span>
-              )}
-            </span>
-          )}
+          <span className="text-sm font-bold text-foreground">
+            {score1 !== null
+              ? `${score1}${wickets1 !== null ? `/${wickets1}` : ""}`
+              : ""}
+            {overs1 !== null && (
+              <span className="text-xs text-muted-foreground font-normal ml-1">
+                ({overs1})
+              </span>
+            )}
+          </span>
         </div>
+        {/* Team 2 */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-lg">{getTeamFlag(team2)}</span>
@@ -129,18 +137,25 @@ function CardContent({ match }: { match: NormalizedMatch }) {
               {team2}
             </span>
           </div>
-          {score2 && (
-            <span className="text-sm font-bold text-foreground">
-              {score2}
-              {overs2 && (
-                <span className="text-xs text-muted-foreground font-normal ml-1">
-                  ({overs2})
-                </span>
-              )}
-            </span>
-          )}
+          <span className="text-sm font-bold text-foreground">
+            {score2 !== null
+              ? `${score2}${wickets2 !== null ? `/${wickets2}` : ""}`
+              : ""}
+            {overs2 !== null && (
+              <span className="text-xs text-muted-foreground font-normal ml-1">
+                ({overs2})
+              </span>
+            )}
+          </span>
         </div>
       </div>
+
+      {/* Match not started note */}
+      {bothNull && status === "upcoming" && (
+        <p className="text-xs text-muted-foreground italic mb-2">
+          Match not started
+        </p>
+      )}
 
       {/* Status text */}
       {statusText && (
@@ -150,12 +165,20 @@ function CardContent({ match }: { match: NormalizedMatch }) {
         </p>
       )}
 
+      {/* Series name (truncated) */}
+      {series && (
+        <p className="text-[10px] text-muted-foreground truncate mb-1">
+          {series.slice(0, 50)}
+          {series.length > 50 ? "…" : ""}
+        </p>
+      )}
+
       {/* Meta: date / venue */}
       <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-        {date && (
+        {matchDate && (
           <span className="flex items-center gap-1">
             <Calendar className="w-3 h-3" />
-            {formatMatchDate(date)}
+            {formatMatchDate(matchDate)}
           </span>
         )}
         {venue && (

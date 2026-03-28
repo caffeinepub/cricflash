@@ -7,8 +7,15 @@ import { MatchCardSkeleton } from "../components/SkeletonCard";
 import { useMatches } from "../contexts/MatchContext";
 import type { NormalizedMatch } from "../services/cricapi";
 
-const SERIES_OPTIONS = ["All", "IPL", "PSL", "International"] as const;
-const TYPE_OPTIONS = ["All", "T20", "ODI", "Test"] as const;
+const SERIES_OPTIONS = [
+  "All",
+  "IPL",
+  "PSL",
+  "International",
+  "Domestic",
+  "Women",
+] as const;
+const TYPE_OPTIONS = ["All", "T20", "ODI", "Test", "T10"] as const;
 type SeriesFilter = (typeof SERIES_OPTIONS)[number];
 type TypeFilter = (typeof TYPE_OPTIONS)[number];
 
@@ -17,17 +24,21 @@ function applyFilters(
   seriesFilter: SeriesFilter,
   typeFilter: TypeFilter,
 ): NormalizedMatch[] {
-  return matches.filter((m) => {
+  const filtered = matches.filter((m) => {
     const seriesOk =
-      seriesFilter === "All" ||
-      (seriesFilter === "IPL" && m.series === "IPL") ||
-      (seriesFilter === "PSL" && m.series === "PSL") ||
-      (seriesFilter === "International" && m.series === "International");
+      seriesFilter === "All" || m.seriesCategory === seriesFilter;
     const typeOk =
-      typeFilter === "All" ||
-      m.matchType.toUpperCase() === typeFilter.toUpperCase();
+      typeFilter === "All" || m.matchType === typeFilter.toLowerCase();
     return seriesOk && typeOk;
   });
+
+  console.log("[CricFlash Filter Debug]", {
+    afterCategoryFilter: filtered.length,
+    seriesFilter,
+    typeFilter,
+  });
+
+  return filtered;
 }
 
 function FilterDropdown<T extends string>({
