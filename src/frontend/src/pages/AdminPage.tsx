@@ -42,6 +42,7 @@ import {
   LogIn,
   Plus,
   RefreshCw,
+  Send,
   Star,
   Tag,
   Trash2,
@@ -62,6 +63,13 @@ import {
   type NormalizedMatch,
   getClassifiedMatches,
 } from "../services/cricapi";
+import {
+  type TelegramSettings,
+  loadTelegramSettings,
+  saveTelegramSettings,
+  sendToTelegram,
+  testTelegramConnection,
+} from "../utils/telegram";
 
 function formatDate(createdAt: bigint): string {
   const ms = Number(createdAt) / 1_000_000;
@@ -506,6 +514,31 @@ export default function AdminPage() {
   const [automationLog, setAutomationLog] = useState<string[]>([]);
   const [matchListOpen, setMatchListOpen] = useState(false);
 
+  // ── Telegram state ───────────────────────────────────────────────────────
+  const [tgSettings, setTgSettings] = useState<TelegramSettings>(() =>
+    loadTelegramSettings(),
+  );
+  const [isTesting, setIsTesting] = useState(false);
+
+  const handleSaveTelegram = () => {
+    saveTelegramSettings(tgSettings);
+    toast.success("Telegram settings saved!");
+  };
+
+  const handleTestTelegram = async () => {
+    setIsTesting(true);
+    try {
+      await testTelegramConnection();
+      toast.success("Test message sent! Check your Telegram channel.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(`Test failed: ${msg}`);
+      console.error("[Telegram Test]", err);
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
   const addLog = (msg: string) =>
     setAutomationLog((prev) => [
       `[${new Date().toLocaleTimeString()}] ${msg}`,
@@ -622,6 +655,15 @@ export default function AdminPage() {
           tags: article.tags ?? [],
         });
         published++;
+        // Send to Telegram (non-blocking)
+        sendToTelegram({
+          title: article.title,
+          excerpt: article.excerpt ?? "",
+          category: article.category,
+          slug: article.slug || "",
+        }).catch((err) => {
+          console.warn("[Telegram] Failed to send article:", err);
+        });
       }
       addLog(`Published ${published} articles.`);
       toast.success(`Published ${published} articles!`);
@@ -725,6 +767,18 @@ export default function AdminPage() {
         toast.success(
           formPublished ? "Article published!" : "Article saved as draft!",
         );
+        // Send to Telegram when publishing
+        if (formPublished) {
+          sendToTelegram({
+            title: payload.title,
+            excerpt: payload.excerpt,
+            category: payload.category,
+            slug: payload.slug,
+          }).catch((err) => {
+            console.warn("[Telegram] Failed to send article:", err);
+            toast.warning("Article published but Telegram send failed.");
+          });
+        }
       }
       resetForm();
       await refetchArticles();
@@ -961,6 +1015,102 @@ export default function AdminPage() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* ── Telegram Settings ─────────────────────────────────────────────── */}
+      <div className="bg-card border border-border rounded-2xl p-6 mb-8">
+        <div className="flex items-center gap-2 mb-1">
+          <Send className="w-5 h-5 text-cric-red" />
+          <h2 className="text-lg font-bold text-foreground">
+            Telegram Settings
+          </h2>
+        </div>
+        <p className="text-sm text-muted-foreground mb-5">
+          Connect your Telegram channel. Articles will be auto-posted when
+          published.
+        </p>
+
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="tg-token">Bot Token</Label>
+            <Input
+              id="tg-token"
+              type="password"
+              placeholder="e.g. 8093259121:AAFFUKz..."
+              value={tgSettings.botToken}
+              onChange={(e) =>
+                setTgSettings((s) => ({ ...s, botToken: e.target.value }))
+              }
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="tg-chatid">Chat ID</Label>
+            <Input
+              id="tg-chatid"
+              placeholder="e.g. -1003740145973 or @channelname"
+              value={tgSettings.chatId}
+              onChange={(e) =>
+                setTgSettings((s) => ({ ...s, chatId: e.target.value }))
+              }
+            />
+            <p className="text-xs text-muted-foreground">
+              For public channels, use @username. For private, use the numeric
+              ID (prefix with -100 for supergroups).
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="tg-link">Channel Link</Label>
+            <Input
+              id="tg-link"
+              placeholder="https://t.me/YourChannel"
+              value={tgSettings.channelLink}
+              onChange={(e) =>
+                setTgSettings((s) => ({ ...s, channelLink: e.target.value }))
+              }
+            />
+          </div>
+
+          <div className="flex gap-3 pt-1">
+            <Button
+              type="button"
+              onClick={handleSaveTelegram}
+              className="bg-cric-red hover:bg-red-700 text-white border-0"
+            >
+              Save Settings
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleTestTelegram}
+              disabled={isTesting}
+            >
+              {isTesting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Testing...
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4 mr-2" />
+                  Test Connection
+                </>
+              )}
+            </Button>
+            {tgSettings.channelLink && (
+              <a
+                href={tgSettings.channelLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-sm text-cric-red hover:underline ml-auto self-center"
+              >
+                <Globe className="w-4 h-4" />
+                View Channel
+              </a>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* ── Existing form + article list ─────────────────────────────────── */}

@@ -1,41 +1,25 @@
-# CricFlash Admin Automation
+# CricFlash
 
 ## Current State
-
-AdminPage.tsx has a two-column layout: left is the article form, right is the article list. Articles are stored in localStorage via useQueries.ts. cricapi.ts has `getClassifiedMatches()` which normalizes match data with date filtering (today → +5 days). MatchContext.tsx provides global match state.
+Admin panel at `/admin` has article management, automated content generation (Fetch Matches, Generate Articles, Publish All), and article CRUD. Articles are stored via backend with localStorage fallback. Publish is handled by `handleSubmitArticle` (single) and `handlePublishAll` (bulk). No Telegram integration exists.
 
 ## Requested Changes (Diff)
 
 ### Add
-- **Automation Dashboard section** at top of AdminPage (above existing form/list grid), with:
-  - 3 buttons: `Fetch Matches`, `Generate Articles`, `Publish All`
-  - Stats row: Total Matches Fetched, Total Articles Generated, Total Published
-  - Fetched matches list (collapsible/scrollable) below the buttons for visibility
-- **`useAdminAutomation` hook** (or inline state in AdminPage) managing:
-  - `fetchedMatches: NormalizedMatch[]` stored in component state + localStorage (`cricflash_admin_matches`)
-  - `rawApiResponse` stored separately in localStorage (`cricflash_admin_raw`) for debugging
-  - `fetchMatches()`: calls `getClassifiedMatches()`, stores raw + normalized, deduplicates by id
-  - `generateArticles()`: for each fetched match, creates 4 draft articles (Dream11 Prediction, Match Prediction, Pitch Report, Playing XI) using structured templates
-  - `publishAll()`: updates all draft articles to published
-- **Article generation templates**: for each match produce SEO title + full content body:
-  - Category auto-assigned: series contains "ipl" → IPL, "psl" → PSL, else International/Domestic
-  - Slug auto-generated: e.g. `rcb-vs-srh-dream11-prediction-2026`
-  - Skip duplicates: check existing articles by matchId+type before creating
-- **Debug logging**: `console.log('[Admin Automation]', { totalFetched, afterFilter, articlesGenerated })`
+- `src/frontend/src/utils/telegram.ts` — `sendToTelegram(article)` utility that reads bot token + chat ID from localStorage (`cricflash_telegram_settings`), sends POST to `https://api.telegram.org/bot{token}/sendMessage` with Markdown-formatted message, throws on failure.
+- Telegram Settings section in AdminPage: fields for Bot Token, Chat ID, Channel Link; Save Settings button (persists to localStorage); Test Connection button (sends test message to real Telegram API).
+- Auto-call `sendToTelegram(article)` after single article publish (when `formPublished === true`).
+- Loop call in `handlePublishAll` to send each newly published article to Telegram.
 
 ### Modify
-- `AdminPage.tsx`: add automation section at top, import `NormalizedMatch` from cricapi, use existing `useCreateArticle`/`useUpdateArticle` mutations for article storage, use `getClassifiedMatches` directly
-- `useQueries.ts`: add `matchId` and `type` fields to article payload (optional fields, backward compat)
+- `AdminPage.tsx`: add Telegram state (botToken, chatId, channelLink), load from localStorage on mount, save handler, test handler, wire into publish flows.
 
 ### Remove
-- Nothing removed from existing UI
+- Nothing.
 
 ## Implementation Plan
-
-1. Extend Article type in `useQueries.ts` to support optional `matchId` and `articleType` fields when saving
-2. In `AdminPage.tsx`, add automation state: `fetchedMatches`, `isFetchingMatches`, `isGenerating`, `isPublishing`
-3. `handleFetchMatches()`: call `getClassifiedMatches()`, flatten live+upcoming+completed, store in state and localStorage
-4. `handleGenerateArticles()`: iterate matches × 4 types, check duplicates, call `createArticleMutation` for each new article
-5. `handlePublishAll()`: load all articles, update status=published for drafts via `updateArticleMutation`
-6. Render automation panel above existing grid: stats row + 3 buttons + fetched matches mini-list
-7. Article content templates with proper SEO titles and structured content (match details, pitch report, playing XI, prediction, tips)
+1. Create `src/frontend/src/utils/telegram.ts` with `sendToTelegram(article)` and `testTelegramConnection()` functions.
+2. Add Telegram Settings section in AdminPage after the automation dashboard — fields, save button, test button with loading/error states.
+3. After `createArticleMutation` succeeds with `status: 'published'`, call `sendToTelegram` (non-blocking, errors logged to console + toast warning).
+4. After each article is published in `handlePublishAll`, call `sendToTelegram` similarly.
+5. Show warning toasts if token/chatId missing when trying to send.
