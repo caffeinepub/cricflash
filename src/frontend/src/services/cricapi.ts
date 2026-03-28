@@ -168,8 +168,8 @@ async function fetchAPI<T>(endpoint: string): Promise<T> {
 
 export function normalizeMatch(match: CricMatch): NormalizedMatch {
   const id = match.id;
-  const team1 = match.teamInfo?.[0]?.name || match.teams?.[0] || "TBA";
-  const team2 = match.teamInfo?.[1]?.name || match.teams?.[1] || "TBA";
+  const team1 = match.teamInfo?.[0]?.name || match.teams?.[0] || "TBD";
+  const team2 = match.teamInfo?.[1]?.name || match.teams?.[1] || "TBD";
 
   const score1 = match.score?.[0]?.r ?? null;
   const wickets1 = match.score?.[0]?.w ?? null;
@@ -186,15 +186,23 @@ export function normalizeMatch(match: CricMatch): NormalizedMatch {
   const matchType = (match.matchType || "").toLowerCase();
   const seriesCategory = detectSeriesCategory(series);
 
-  const matchDate = rawDate ? new Date(rawDate) : null;
+  // Parse date — keep null if invalid, do NOT drop the match
+  let matchDate: Date | null = null;
+  if (rawDate) {
+    const d = new Date(rawDate);
+    if (!Number.isNaN(d.getTime())) matchDate = d;
+  }
+
   const now = new Date();
+  const statusLower = statusText.toLowerCase();
 
   let status: NormalizedMatch["status"];
-  if (statusText.toLowerCase().includes("live")) {
+  if (statusLower.includes("live") || statusLower.includes("in progress")) {
     status = "live";
-  } else if (matchDate && matchDate > now) {
+  } else if (matchDate && matchDate >= now) {
     status = "upcoming";
   } else {
+    // Invalid date OR past date → treat as result
     status = "result";
   }
 
@@ -224,7 +232,7 @@ export async function getMatchDetail(id: string): Promise<MatchDetail> {
 }
 
 export async function getClassifiedMatches(): Promise<ClassifiedMatches> {
-  const CACHE_KEY = "cricapi_classified_v4";
+  const CACHE_KEY = "cricapi_classified_v5";
   const MAX_AGE = 90_000;
   if (isCacheValid(CACHE_KEY, MAX_AGE)) {
     const cached = readCache<ClassifiedMatches>(CACHE_KEY);
@@ -260,7 +268,8 @@ export async function getClassifiedMatches(): Promise<ClassifiedMatches> {
     if (!seen.has(m.id)) seen.set(m.id, m);
   }
 
-  const totalMatches = seen.size;
+  const allMatches = Array.from(seen.values());
+  console.log("TOTAL:", allMatches.length);
 
   // Date window
   const today = new Date();
@@ -269,34 +278,41 @@ export async function getClassifiedMatches(): Promise<ClassifiedMatches> {
   endDate.setDate(today.getDate() + 5);
   endDate.setHours(23, 59, 59, 999);
   const pastThreshold = new Date(today);
-  pastThreshold.setDate(today.getDate() - 3);
+  pastThreshold.setDate(today.getDate() - 2);
 
   const live: NormalizedMatch[] = [];
   const upcoming: NormalizedMatch[] = [];
   const completed: NormalizedMatch[] = [];
 
-  for (const m of seen.values()) {
+  for (const m of allMatches) {
     const norm = normalizeMatch(m);
+
     if (norm.status === "live") {
+      // ALL live matches — no date restriction
       live.push(norm);
     } else if (norm.status === "upcoming") {
-      // Only today → today+5
-      if (
-        norm.matchDate &&
-        norm.matchDate >= today &&
-        norm.matchDate <= endDate
-      ) {
+      if (!norm.matchDate) {
+        // Invalid date but status is upcoming — keep as fallback
+        upcoming.push(norm);
+      } else if (norm.matchDate >= today && norm.matchDate <= endDate) {
         upcoming.push(norm);
       }
+      // Matches beyond 5 days are silently dropped
     } else {
-      // Result: allow last 3 days
-      if (norm.matchDate && norm.matchDate >= pastThreshold) {
+      // Result: allow last 2 days OR invalid date matches (keep as fallback)
+      if (!norm.matchDate || norm.matchDate >= pastThreshold) {
         completed.push(norm);
       }
     }
   }
 
-  const afterDateFilter = live.length + upcoming.length + completed.length;
+  const afterFilter = live.length + upcoming.length + completed.length;
+  console.log("AFTER FILTER:", afterFilter);
+  if (afterFilter === 0) {
+    console.warn(
+      "[CricFlash] AFTER FILTER = 0. Check date parsing or API response.",
+    );
+  }
 
   // Sorting
   upcoming.sort(
@@ -307,11 +323,9 @@ export async function getClassifiedMatches(): Promise<ClassifiedMatches> {
   );
 
   const sampleMatch = [...live, ...upcoming, ...completed][0] ?? null;
-
   console.log("[CricFlash Debug]", {
-    totalMatches,
-    afterDateFilter,
-    afterCategoryFilter: afterDateFilter, // category filter is UI-side
+    totalMatches: allMatches.length,
+    afterDateFilter: afterFilter,
     sampleMatch,
   });
 
@@ -320,7 +334,7 @@ export async function getClassifiedMatches(): Promise<ClassifiedMatches> {
   return result;
 }
 
-// Legacy helpers — still used by LiveTicker, SearchOverlay, UpcomingMatchesPage
+// Legacy helpers
 export async function getLiveMatches(): Promise<CricMatch[]> {
   const CACHE_KEY = "cricapi_live_matches";
   const MAX_AGE = 90_000;

@@ -113,10 +113,142 @@ function getArticleCategory(series: string): string {
   const s = series.toLowerCase();
   if (s.includes("ipl")) return "IPL";
   if (s.includes("psl")) return "PSL";
+  if (s.includes("women") || s.includes("woman")) return "Women";
   return "International";
 }
 
+function getArticleImage(series: string): string {
+  const s = series.toLowerCase();
+  if (s.includes("ipl"))
+    return "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=600&q=80";
+  if (s.includes("psl"))
+    return "https://images.unsplash.com/photo-1531415074968-036ba1b575da?w=600&q=80";
+  if (s.includes("women") || s.includes("woman"))
+    return "https://images.unsplash.com/photo-1562077772-3bd90403f7f0?w=600&q=80";
+  return "https://images.unsplash.com/photo-1624880357913-a8539238245b?w=600&q=80";
+}
+
 type ArticleType = "dream11" | "prediction" | "pitchReport" | "playingXI";
+
+const TEAM_PLAYERS: Record<
+  string,
+  {
+    batters: string[];
+    allRounders: string[];
+    keepers: string[];
+    bowlers: string[];
+  }
+> = {
+  "Royal Challengers Bengaluru": {
+    batters: ["Virat Kohli", "Faf du Plessis", "Rajat Patidar"],
+    allRounders: ["Glenn Maxwell", "Cameron Green"],
+    keepers: ["Dinesh Karthik"],
+    bowlers: ["Mohammed Siraj", "Josh Hazlewood", "Wanindu Hasaranga"],
+  },
+  "Mumbai Indians": {
+    batters: ["Rohit Sharma", "Suryakumar Yadav", "Tilak Varma"],
+    allRounders: ["Hardik Pandya", "Tim David"],
+    keepers: ["Ishan Kishan"],
+    bowlers: ["Jasprit Bumrah", "Piyush Chawla"],
+  },
+  "Chennai Super Kings": {
+    batters: ["Ruturaj Gaikwad", "Devon Conway", "Ajinkya Rahane"],
+    allRounders: ["Ravindra Jadeja", "Moeen Ali"],
+    keepers: ["MS Dhoni"],
+    bowlers: ["Deepak Chahar", "Matheesha Pathirana", "Tushar Deshpande"],
+  },
+  "Kolkata Knight Riders": {
+    batters: ["Shreyas Iyer", "Venkatesh Iyer", "Phil Salt"],
+    allRounders: ["Andre Russell", "Sunil Narine"],
+    keepers: ["Rahmanullah Gurbaz"],
+    bowlers: ["Mitchell Starc", "Varun Chakravarthy"],
+  },
+  "Delhi Capitals": {
+    batters: ["David Warner", "Jake Fraser-McGurk", "Rishabh Pant"],
+    allRounders: ["Axar Patel", "Tristan Stubbs"],
+    keepers: ["Rishabh Pant"],
+    bowlers: ["Anrich Nortje", "Kuldeep Yadav", "Mukesh Kumar"],
+  },
+  "Rajasthan Royals": {
+    batters: ["Jos Buttler", "Yashasvi Jaiswal", "Sanju Samson"],
+    allRounders: ["Ravichandran Ashwin", "Shimron Hetmyer"],
+    keepers: ["Sanju Samson"],
+    bowlers: ["Trent Boult", "Yuzvendra Chahal", "Sandeep Sharma"],
+  },
+  "Sunrisers Hyderabad": {
+    batters: ["Travis Head", "Abhishek Sharma", "Aiden Markram"],
+    allRounders: ["Washington Sundar", "Marco Jansen"],
+    keepers: ["Heinrich Klaasen"],
+    bowlers: ["Pat Cummins", "T Natarajan", "Mayank Markande"],
+  },
+  "Punjab Kings": {
+    batters: ["Shikhar Dhawan", "Jonny Bairstow", "Sam Curran"],
+    allRounders: ["Liam Livingstone", "Harpreet Brar"],
+    keepers: ["Jitesh Sharma"],
+    bowlers: ["Kagiso Rabada", "Arshdeep Singh"],
+  },
+  "Lucknow Super Giants": {
+    batters: ["KL Rahul", "Quinton de Kock", "Marcus Stoinis"],
+    allRounders: ["Krunal Pandya", "Kyle Mayers"],
+    keepers: ["KL Rahul"],
+    bowlers: ["Ravi Bishnoi", "Mark Wood", "Mohsin Khan"],
+  },
+  "Gujarat Titans": {
+    batters: ["Shubman Gill", "David Miller", "Wriddhiman Saha"],
+    allRounders: ["Hardik Pandya", "Vijay Shankar"],
+    keepers: ["Wriddhiman Saha"],
+    bowlers: ["Mohammed Shami", "Rashid Khan", "Noor Ahmad"],
+  },
+};
+
+function getTeamPlayers(team: string) {
+  return (
+    TEAM_PLAYERS[team] || {
+      batters: [],
+      allRounders: [],
+      keepers: [],
+      bowlers: [],
+    }
+  );
+}
+
+function buildPlayingXI(team: string): string[] {
+  const p = getTeamPlayers(team);
+  const xi: string[] = [];
+  xi.push(...p.keepers.slice(0, 1));
+  xi.push(...p.batters.slice(0, 3));
+  xi.push(...p.allRounders.slice(0, 3));
+  xi.push(...p.bowlers.slice(0, 3));
+  while (xi.length < 11) xi.push(`${team} Player ${xi.length + 1}`);
+  return xi.slice(0, 11);
+}
+
+function getPitchType(venue: string): string {
+  const v = venue.toLowerCase();
+  if (v.includes("wankhede") || v.includes("mumbai"))
+    return "batting-friendly with pace off the surface. Expect high scores — both teams should target 170+.";
+  if (v.includes("chepauk") || v.includes("chennai"))
+    return "spin-friendly. The ball will grip and turn, making spinners a key weapon. Low-scoring game expected.";
+  if (
+    v.includes("chinnaswamy") ||
+    v.includes("bengaluru") ||
+    v.includes("bangalore")
+  )
+    return "a batting paradise. Small ground and flat surface mean every game here goes to the wire.";
+  if (v.includes("eden") || v.includes("kolkata"))
+    return "well-balanced. Pacers dominate in the first 6 overs, spinners come into play in the middle, and batters can score freely throughout.";
+  if (v.includes("arun jaitley") || v.includes("delhi") || v.includes("kotla"))
+    return "flat and good for batting, but dew in evening games adds advantage to the chasing team.";
+  if (v.includes("narendra modi") || v.includes("ahmedabad"))
+    return "large ground with a good surface. Pacers get some help early; batters settle in as the game progresses.";
+  if (v.includes("lahore"))
+    return "a batter's track. High-scoring game expected. Spinners could be effective in the second half.";
+  if (v.includes("karachi"))
+    return "pace-friendly initially, flattening out for batting as the game progresses. Expect competitive totals.";
+  if (v.includes("rawalpindi"))
+    return "known for big scores. The flat outfield and true surface make this a batting-friendly ground.";
+  return "a well-maintained surface that provides competitive cricket. Pacers get help early, with batters scoring freely as the game progresses.";
+}
 
 function buildArticlePayload(
   match: NormalizedMatch,
@@ -137,9 +269,23 @@ function buildArticlePayload(
   const year = new Date().getFullYear();
   const formattedDate = formatMatchDate(matchDate);
   const category = getArticleCategory(series);
+  const imageUrl = getArticleImage(series);
   const tags = [team1, team2, matchType.toUpperCase(), category].filter(
     Boolean,
   );
+
+  const pitchDesc = getPitchType(venue);
+  const t1xi = buildPlayingXI(team1);
+  const t2xi = buildPlayingXI(team2);
+  const t1p = getTeamPlayers(team1);
+  const t2p = getTeamPlayers(team2);
+  const captain = t1p.batters[0] || t1p.allRounders[0] || `${team1} Captain`;
+  const vc = t2p.batters[0] || t2p.allRounders[0] || `${team2} Captain`;
+  const safePicks = [
+    t1p.allRounders[0] || t1p.batters[1] || `${team1} All-rounder`,
+    t2p.allRounders[0] || t2p.batters[1] || `${team2} All-rounder`,
+    t1p.bowlers[0] || `${team1} Bowler`,
+  ].filter(Boolean);
 
   let title = "";
   let slug = "";
@@ -148,174 +294,153 @@ function buildArticlePayload(
   if (type === "dream11") {
     title = `${team1} vs ${team2} Dream11 Prediction ${year}: Best Team & Tips`;
     slug = matchSlug(team1, team2, "dream11-prediction");
-    content = `## ${team1} vs ${team2} Dream11 Prediction ${year}
-
-The much-awaited clash between ${team1} and ${team2} is set to take place at ${venue} on ${formattedDate}. Here is our Dream11 prediction and best team tips for this ${matchType} match.
-
-## Match Details
-- **Match:** ${team1} vs ${team2}
-- **Date:** ${formattedDate}
-- **Venue:** ${venue}
-- **Match Type:** ${matchType}
-- **Series:** ${series}
-
-## Pitch Report
-The ${venue} pitch typically offers assistance to both batters and bowlers. Expect a competitive surface with some early movement for pacers. As the match progresses, the pitch may ease out and favor the batters.
-
-## Probable Playing XI
-
-**${team1}:**
-Players are yet to be confirmed. Check the official team announcement closer to match time.
-
-**${team2}:**
-Players are yet to be confirmed. Check the official team announcement closer to match time.
-
-## Dream11 Prediction Tips
-
-1. Pick 3-4 top-order batters from both teams
-2. Include 1-2 all-rounders for extra flexibility
-3. Pick your team captain from in-form batters
-4. Include at least 2 specialist bowlers
-5. Monitor team news and toss results before finalizing your team
-
-## Best Dream11 Team
-
-**Captain:** Best batter in current form  
-**Vice-Captain:** Top all-rounder
-
-**Batters (4):** Top 4 available batters  
-**All-rounders (2):** Best 2 all-rounders  
-**Wicket-keeper (1):** Team wicket-keeper  
-**Bowlers (4):** Top wicket-taking bowlers
-
-## Conclusion
-This promises to be an exciting contest between ${team1} and ${team2}. Choose your Dream11 team wisely and good luck!`;
+    content = [
+      `## ${team1} vs ${team2} Dream11 Prediction ${year}`,
+      "",
+      `${team1} take on ${team2} at ${venue} on ${formattedDate}. Here are our Dream11 tips for this ${matchType.toUpperCase()} fixture.`,
+      "",
+      "## Match Details",
+      `- **Teams:** ${team1} vs ${team2}`,
+      `- **Date:** ${formattedDate}`,
+      `- **Venue:** ${venue}`,
+      `- **Format:** ${matchType.toUpperCase()}`,
+      `- **Series:** ${series}`,
+      "",
+      "## Pitch Report",
+      `${venue} is ${pitchDesc}`,
+      "",
+      "## Head-to-Head",
+      `${team1} and ${team2} have a competitive recent history. Their meetings have been closely fought, with both sides capable of winning on their day.`,
+      "",
+      `## ${team1} Probable XI`,
+      ...t1xi.map((p, i) => `${i + 1}. ${p}`),
+      "",
+      `## ${team2} Probable XI`,
+      ...t2xi.map((p, i) => `${i + 1}. ${p}`),
+      "",
+      "## Dream11 Tips",
+      `- **Captain:** ${captain} — consistent performer and always in the runs`,
+      `- **Vice-Captain:** ${vc} — high upside with bat and provides bonus points`,
+      `- **Safe Picks:** ${safePicks.join(", ")}`,
+      "- Pick bowlers who have taken wickets in the last 3 matches",
+      "",
+      "## Prediction",
+      `${team1} look slightly stronger heading into this fixture. **${team1} to win.**`,
+    ].join("\n");
   } else if (type === "prediction") {
-    title = `${team1} vs ${team2} Match Prediction ${year}: Who Will Win Today?`;
+    title = `${team1} vs ${team2} Match Prediction ${year}: Who Will Win?`;
     slug = matchSlug(team1, team2, "match-prediction");
-    content = `## ${team1} vs ${team2} Match Prediction ${year}
-
-## Match Overview
-${team1} and ${team2} are set for an exciting ${matchType} clash. Here is our expert match prediction for this fixture.
-
-## Match Details
-- **Match:** ${team1} vs ${team2}
-- **Date:** ${formattedDate}
-- **Venue:** ${venue}
-- **Match Type:** ${matchType}
-- **Series:** ${series}
-
-## Head to Head
-Both ${team1} and ${team2} have had competitive encounters in recent years. The head-to-head record is closely contested, making this match difficult to call.
-
-## Team Form
-**${team1}:** Coming into this match with recent competitive performances. The team will look to build on their previous outings.
-
-**${team2}:** A formidable side that has been consistent in their recent campaigns. They will be keen to put in a strong performance.
-
-## Key Players
-Watch out for top performers from both sides who can turn the game with a single performance. Key batters, bowlers, and all-rounders will play a crucial role.
-
-## Pitch and Conditions
-The ${venue} pitch is expected to be sporting. Weather conditions should be suitable for a full match to be played.
-
-## Our Prediction
-This is expected to be a closely fought match. Both teams have quality players who can make a difference on their day. Based on current form and conditions, both sides have a realistic chance of winning.
-
-## Conclusion
-Stay tuned for the live score and match updates. May the best team win!`;
+    content = [
+      `## ${team1} vs ${team2} Match Prediction ${year}`,
+      "",
+      `${team1} and ${team2} clash in a ${matchType.toUpperCase()} at ${venue} on ${formattedDate}.`,
+      "",
+      "## Match Details",
+      `- **Teams:** ${team1} vs ${team2}`,
+      `- **Date:** ${formattedDate}`,
+      `- **Venue:** ${venue}`,
+      `- **Format:** ${matchType.toUpperCase()}`,
+      `- **Series:** ${series}`,
+      "",
+      "## Head-to-Head",
+      "Both sides have been evenly matched in recent encounters. This rivalry always produces competitive cricket.",
+      "",
+      `## ${team1} — Form & Strengths`,
+      `${team1} have been performing well in recent outings. Their top-order provides a strong foundation, and the pace attack has been consistent.`,
+      "",
+      `## ${team2} — Form & Strengths`,
+      `${team2} are a well-drilled side with match-winners across all departments. They are capable of turning the game at any point.`,
+      "",
+      "## Pitch & Conditions",
+      `${venue} offers ${pitchDesc}`,
+      "",
+      "## Key Battles",
+      `- ${t1p.batters[0] || `${team1} batter`} vs ${t2p.bowlers[0] || `${team2} bowler`}`,
+      `- ${t2p.batters[0] || `${team2} batter`} vs ${t1p.bowlers[0] || `${team1} bowler`}`,
+      "",
+      "## Our Prediction",
+      `Close call. On current form, **${team1} edge this one**, but don\'t rule out ${team2}.`,
+    ].join("\n");
   } else if (type === "pitchReport") {
     const venueSlug = venue
       .toLowerCase()
       .replace(/\s+/g, "-")
       .replace(/[^a-z0-9-]/g, "");
     title = `${venue} Pitch Report: ${team1} vs ${team2} ${year}`;
-    slug = `${venueSlug}-pitch-report-${matchSlug(team1, team2, "").replace(
-      /-$/,
+    slug = `${venueSlug}-pitch-report-${matchSlug(team1, team2, "").replace(/-$/, "")}-${year}`;
+    const isBattingFriendly =
+      pitchDesc.toLowerCase().includes("batting") ||
+      pitchDesc.toLowerCase().includes("flat") ||
+      pitchDesc.toLowerCase().includes("paradise");
+    const hasDew = pitchDesc.toLowerCase().includes("dew");
+    const isSpinFriendly = pitchDesc.toLowerCase().includes("spin");
+    content = [
+      `## ${venue} Pitch Report — ${team1} vs ${team2}`,
       "",
-    )}-${year}`;
-    content = `## ${venue} Pitch Report for ${team1} vs ${team2}
-
-## Venue Overview
-${venue} is a well-known cricket ground that has hosted numerous international and domestic matches. The pitch here is known for its balanced nature, offering something for both batters and bowlers.
-
-## Pitch Characteristics
-- **Surface:** Good batting surface with some early pace
-- **Bounce:** Medium to high, consistent throughout
-- **Swing:** Moderate swing conditions in overcast weather
-- **Turn:** Minimal in the early stages, may develop later
-- **Dew Factor:** Evening matches may see dew affecting the surface
-
-## Historical Stats at ${venue}
-The pitch at ${venue} has historically produced competitive scores. Batting first or second, both teams have had success at this venue.
-
-## Expected Conditions
-The track is expected to be good for batting initially. Pacers will find some assistance in the powerplay overs, while spinners may come into play in the latter half of the innings.
-
-## Fantasy Tips Based on Pitch
-- Prefer batters who like to play on good surfaces
-- Include a mix of pace and spin bowlers
-- The toss could play an important role; winning the toss and batting first is often preferred here
-
-## Conclusion
-Overall, the ${venue} pitch promises to provide an exciting match between ${team1} and ${team2}. Expect a high-scoring affair with wickets spread throughout the innings.`;
+      `${matchType.toUpperCase()} match at ${venue} on ${formattedDate}.`,
+      "",
+      "## Pitch Analysis",
+      `${venue} is ${pitchDesc}`,
+      "",
+      "## Surface Breakdown",
+      "- **Early Overs:** Pacers will find assistance. The new ball should move in the first 6 overs.",
+      "- **Middle Overs:** Pitch eases. Spinners come into play. Set batters can score freely.",
+      "- **Death Overs:** Flat surface, high scoring. Slower balls and variations are key.",
+      "",
+      "## Batting vs Bowling",
+      isBattingFriendly
+        ? "Batting-friendly venue. Teams should aim for 160+ if batting first. Par score: 165-180."
+        : "Decent contest between bat and ball. A score of 150-160 should be competitive.",
+      "",
+      "## Toss Impact",
+      hasDew
+        ? "Evening matches here are heavily impacted by dew. Chasing teams have a strong advantage once dew sets in."
+        : "The toss is important but not decisive. Both sides have won batting and chasing at this venue.",
+      "",
+      "## Fantasy Tip",
+      isSpinFriendly
+        ? "Pick 2-3 spinners in your Dream11 team. The pitch will assist them significantly."
+        : "Back your pacers for the powerplay and switch to batters for the final fantasy push.",
+    ].join("\n");
   } else {
-    title = `${team1} vs ${team2} Predicted Playing XI ${year}`;
+    title = `${team1} vs ${team2} Playing XI ${year}: Predicted Lineups`;
     slug = matchSlug(team1, team2, "playing-xi");
-    content = `## ${team1} vs ${team2} Predicted Playing XI ${year}
-
-## Match Details
-- **Match:** ${team1} vs ${team2}
-- **Date:** ${formattedDate}
-- **Venue:** ${venue}
-- **Match Type:** ${matchType}
-
-## ${team1} Predicted Playing XI
-
-The following is the probable playing XI for ${team1} based on recent team selections and squad announcements:
-
-1. Opening batter (right-handed)
-2. Opening batter (left-handed)
-3. Top-order batter
-4. Middle-order batter (captain)
-5. Middle-order batter
-6. All-rounder (batting)
-7. Wicket-keeper batter
-8. All-rounder (bowling)
-9. Pace bowler
-10. Pace bowler
-11. Spinner
-
-**Captain:** TBA | **Vice-Captain:** TBA
-
-## ${team2} Predicted Playing XI
-
-The following is the probable playing XI for ${team2} based on recent team selections and squad announcements:
-
-1. Opening batter
-2. Opening batter
-3. Top-order batter (captain)
-4. Middle-order batter
-5. Middle-order batter
-6. Wicket-keeper batter
-7. All-rounder
-8. All-rounder
-9. Pace bowler
-10. Pace bowler
-11. Spinner
-
-**Captain:** TBA | **Vice-Captain:** TBA
-
-## Key Inclusions and Exclusions
-Watch out for last-minute team changes and injury updates. Check the official team announcements 30 minutes before the match for the confirmed Playing XI.
-
-## Fantasy Picks Based on Playing XI
-Once the official XI is announced, pick your fantasy team wisely. Focus on in-form players and those with good records at the venue.`;
+    content = [
+      `## ${team1} vs ${team2} Predicted Playing XI ${year}`,
+      "",
+      `Predicted XIs for the ${matchType.toUpperCase()} match at ${venue} on ${formattedDate}.`,
+      "",
+      "## Match Details",
+      `- **Teams:** ${team1} vs ${team2}`,
+      `- **Date:** ${formattedDate}`,
+      `- **Venue:** ${venue}`,
+      `- **Format:** ${matchType.toUpperCase()}`,
+      "",
+      `## ${team1} — Predicted XI`,
+      ...t1xi.map((p, i) => `${i + 1}. ${p}`),
+      "",
+      `*Captain: ${t1p.batters[0] || t1xi[0]}*`,
+      "",
+      `## ${team2} — Predicted XI`,
+      ...t2xi.map((p, i) => `${i + 1}. ${p}`),
+      "",
+      `*Captain: ${t2p.batters[0] || t2xi[0]}*`,
+      "",
+      "## Key Inclusions",
+      `- **${team1}:** ${t1p.allRounders[0] || t1xi[4] || "All-rounder"} is crucial — provides balance with both bat and ball`,
+      `- **${team2}:** ${t2p.allRounders[0] || t2xi[4] || "All-rounder"} gives them the X-factor in the middle overs`,
+      "",
+      "## Fantasy Impact",
+      "Prioritize the top-3 batters from each side along with the all-rounders. Monitor team news before the toss for last-minute changes.",
+    ].join("\n");
   }
 
   const excerpt = content
     .replace(/##[^\n]*/g, "")
-    .trim()
+    .split("\n")
+    .filter((l) => l.trim().length > 20)
+    .slice(0, 2)
+    .join(" ")
     .slice(0, 200);
 
   return {
@@ -328,7 +453,7 @@ Once the official XI is announced, pick your fantasy team wisely. Focus on in-fo
     excerpt_short: excerpt,
     status: "draft",
     featured: false,
-    imageUrl: "",
+    imageUrl,
   };
 }
 
@@ -353,7 +478,7 @@ function LoginForm() {
   };
 
   return (
-    <div className="max-w-[400px] mx-auto px-4 py-16">
+    <div className="w-full max-w-sm mx-auto px-4 py-16">
       <div className="bg-card border border-border rounded-2xl p-8">
         <div className="text-center mb-6">
           <LogIn className="w-10 h-10 text-cric-red mx-auto mb-3" />
@@ -1075,7 +1200,7 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="max-w-[1200px] mx-auto px-4 py-8">
+    <div className="w-full max-w-5xl mx-auto px-3 py-6 overflow-x-hidden">
       <div className="mb-8">
         <h1 className="text-2xl font-extrabold text-foreground">Admin Panel</h1>
         <p className="text-sm text-muted-foreground mt-1">

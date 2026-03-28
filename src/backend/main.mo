@@ -183,20 +183,21 @@ actor {
     updatedArticle;
   };
 
-  public shared ({ caller }) func sendTelegramMessage(botToken : Text, chatId : Text, message : Text) : async Text {
+  public shared func sendTelegramMessage(botToken : Text, chatId : Text, message : Text) : async Text {
     let url = "https://api.telegram.org/bot" # botToken # "/sendMessage";
     let requestBody = "{\"chat_id\":\"" # chatId # "\",\"text\":\"" # message # "\",\"parse_mode\":\"HTML\"}";
-    let maxResponseSize = 100000_000;
     try {
-      let response = await Outcall.httpPostRequest(url, [], requestBody, transform);
-      if (response.contains(#predicate(func(c) { c == '\t' }))) {
+      let response = await Outcall.httpPostRequest(
+        url,
+        [{ name = "Content-Type"; value = "application/json" }],
+        requestBody,
+        transform
+      );
+      // Telegram returns {"ok":true,...} on success
+      if (response.contains(#text("\"ok\":true"))) {
         return "ok";
       } else {
-        if (response.contains(#predicate(func(c) { c == '\t' })) and not response.contains(#predicate(func(c) { c == '\t' }))) {
-          return "telegram-error: " # response;
-        } else {
-          return "http-error: " # response;
-        };
+        return "telegram-error: " # response;
       };
     } catch (_) {
       "outcall-error";
