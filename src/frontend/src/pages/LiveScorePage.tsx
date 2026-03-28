@@ -5,23 +5,68 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import MatchCard from "../components/MatchCard";
 import { MatchCardSkeleton } from "../components/SkeletonCard";
 import { useMatches } from "../contexts/MatchContext";
-import type { NormalizedMatch } from "../services/cricapi";
+import { type NormalizedMatch, normalizeSeries } from "../services/cricapi";
 
 const TYPE_OPTIONS = ["All", "T20", "ODI", "Test", "T10"] as const;
 type TypeFilter = (typeof TYPE_OPTIONS)[number];
+
+interface SeriesGroup {
+  seriesName: string;
+  key: string;
+  matches: NormalizedMatch[];
+  nearestDate: number;
+}
+
+function detectSeries(series: string): string {
+  const s = (series || "").toLowerCase();
+  if (s.includes("ipl") || s.includes("indian premier league")) return "IPL";
+  if (s.includes("psl") || s.includes("pakistan super league")) return "PSL";
+  if (s.includes("women")) return "WOMEN";
+  return "INTERNATIONAL";
+}
+
+function groupAndSortBySeries(matches: NormalizedMatch[]): SeriesGroup[] {
+  const groups: Record<string, SeriesGroup> = {};
+
+  for (const match of matches) {
+    const key = normalizeSeries(match.series) || "other";
+    if (!groups[key]) {
+      groups[key] = {
+        seriesName: match.series || "Other",
+        key,
+        matches: [],
+        nearestDate: Number.POSITIVE_INFINITY,
+      };
+    }
+    groups[key].matches.push(match);
+    const t = match.matchDate?.getTime() ?? Number.POSITIVE_INFINITY;
+    if (t < groups[key].nearestDate) groups[key].nearestDate = t;
+  }
+
+  // Sort matches inside each series by date ascending
+  for (const g of Object.values(groups)) {
+    g.matches.sort(
+      (a, b) => (a.matchDate?.getTime() ?? 0) - (b.matchDate?.getTime() ?? 0),
+    );
+  }
+
+  // Sort series by nearest match date
+  return Object.values(groups).sort((a, b) => a.nearestDate - b.nearestDate);
+}
 
 function applyFilters(
   matches: NormalizedMatch[],
   seriesFilter: string,
   typeFilter: TypeFilter,
 ): NormalizedMatch[] {
-  return matches.filter((m) => {
+  const filtered = matches.filter((m) => {
     const seriesOk =
-      seriesFilter === "All" || m.seriesCategory === seriesFilter;
+      seriesFilter === "All" || detectSeries(m.series) === seriesFilter;
     const typeOk =
       typeFilter === "All" || m.matchType === typeFilter.toLowerCase();
     return seriesOk && typeOk;
   });
+  return filtered;
 }
 
 function FilterDropdown({
@@ -83,6 +128,26 @@ function FilterDropdown({
   );
 }
 
+function SeriesGroupedList({ groups }: { groups: SeriesGroup[] }) {
+  if (groups.length === 0) return null;
+  return (
+    <div className="space-y-6">
+      {groups.map((g) => (
+        <div key={g.key}>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground border-b border-border pb-1.5 mb-3">
+            {g.seriesName}
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {g.matches.map((m) => (
+              <MatchCard key={m.id} match={m} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function LiveScorePage() {
   const { classified, loading, error, refresh } = useMatches();
   const [refreshing, setRefreshing] = useState(false);
@@ -93,7 +158,6 @@ export default function LiveScorePage() {
     document.title = "Live Cricket Scores – CricFlash";
   }, []);
 
-  // Build dynamic series options from loaded match data
   const dynamicSeriesOptions = useMemo(() => {
     const all = [
       ...classified.live,
@@ -103,9 +167,10 @@ export default function LiveScorePage() {
     const seen = new Set<string>();
     const opts: string[] = ["All"];
     for (const m of all) {
-      if (m.seriesCategory && !seen.has(m.seriesCategory)) {
-        seen.add(m.seriesCategory);
-        opts.push(m.seriesCategory);
+      const cat = detectSeries(m.series);
+      if (!seen.has(cat)) {
+        seen.add(cat);
+        opts.push(cat);
       }
     }
     return opts;
@@ -135,15 +200,16 @@ export default function LiveScorePage() {
     typeFilter,
   );
 
-  // Split upcoming: near (<=2 days) vs future (>2 days)
-  const now = new Date();
-  const in2Days = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
-  const nearUpcoming = filteredUpcoming.filter(
-    (m) => !m.matchDate || m.matchDate <= in2Days,
-  );
-  const futureUpcoming = filteredUpcoming.filter(
-    (m) => m.matchDate && m.matchDate > in2Days,
-  );
+  const visibleMatches = [
+    ...filteredLive,
+    ...filteredUpcoming,
+    ...filteredCompleted,
+  ];
+  console.log("VISIBLE:", visibleMatches.length);
+
+  const liveGroups = groupAndSortBySeries(filteredLive);
+  const upcomingGroups = groupAndSortBySeries(filteredUpcoming);
+  const completedGroups = groupAndSortBySeries(filteredCompleted);
 
   return (
     <div className="max-w-[1200px] mx-auto px-4 py-4">
@@ -228,14 +294,8 @@ export default function LiveScorePage() {
           </div>
 
           <TabsContent value="live">
-            {filteredLive.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredLive.map((m, i) => (
-                  <div key={m.id} data-ocid={`live.item.${i + 1}`}>
-                    <MatchCard match={m} />
-                  </div>
-                ))}
-              </div>
+            {liveGroups.length > 0 ? (
+              <SeriesGroupedList groups={liveGroups} />
             ) : seriesFilter !== "All" || typeFilter !== "All" ? (
               <div className="text-center py-16">
                 <p className="text-muted-foreground text-lg">No live matches</p>
@@ -243,18 +303,19 @@ export default function LiveScorePage() {
                   Try adjusting your filters
                 </p>
               </div>
-            ) : filteredUpcoming.length > 0 ? (
+            ) : upcomingGroups.length > 0 ? (
               <div>
                 <p className="text-sm text-muted-foreground mb-3">
                   No live matches right now — showing upcoming
                 </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredUpcoming.slice(0, 2).map((m, i) => (
-                    <div key={m.id} data-ocid={`live.item.${i + 1}`}>
-                      <MatchCard match={m} />
-                    </div>
-                  ))}
-                </div>
+                <SeriesGroupedList
+                  groups={upcomingGroups
+                    .map((g) => ({
+                      ...g,
+                      matches: g.matches.slice(0, 2),
+                    }))
+                    .filter((g) => g.matches.length > 0)}
+                />
               </div>
             ) : (
               <div className="text-center py-16">
@@ -267,41 +328,8 @@ export default function LiveScorePage() {
           </TabsContent>
 
           <TabsContent value="upcoming">
-            {filteredUpcoming.length > 0 ? (
-              <div className="space-y-6">
-                {/* Near matches (today + tomorrow) first */}
-                {nearUpcoming.length > 0 && (
-                  <div>
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-                      Today &amp; Tomorrow
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {nearUpcoming.map((m, i) => (
-                        <div key={m.id} data-ocid={`live.item.${i + 1}`}>
-                          <MatchCard match={m} />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {/* Future matches */}
-                {futureUpcoming.length > 0 && (
-                  <div>
-                    {nearUpcoming.length > 0 && (
-                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-                        Upcoming
-                      </p>
-                    )}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {futureUpcoming.map((m, i) => (
-                        <div key={m.id} data-ocid={`live.item.${i + 1}`}>
-                          <MatchCard match={m} />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+            {upcomingGroups.length > 0 ? (
+              <SeriesGroupedList groups={upcomingGroups} />
             ) : (
               <div className="text-center py-16">
                 <p className="text-muted-foreground text-lg">
@@ -317,14 +345,8 @@ export default function LiveScorePage() {
           </TabsContent>
 
           <TabsContent value="results">
-            {filteredCompleted.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredCompleted.map((m, i) => (
-                  <div key={m.id} data-ocid={`live.item.${i + 1}`}>
-                    <MatchCard match={m} />
-                  </div>
-                ))}
-              </div>
+            {completedGroups.length > 0 ? (
+              <SeriesGroupedList groups={completedGroups} />
             ) : (
               <div className="text-center py-16">
                 <p className="text-muted-foreground text-lg">
