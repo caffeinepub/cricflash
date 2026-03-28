@@ -104,7 +104,7 @@ function FilterDropdown<T extends string>({
 }
 
 export default function LiveScorePage() {
-  const { classified, loading, error, refresh } = useMatches();
+  const { classified, loading, error, refresh, debugInfo } = useMatches();
   const [refreshing, setRefreshing] = useState(false);
   const [seriesFilter, setSeriesFilter] = useState<SeriesFilter>("All");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("All");
@@ -139,7 +139,7 @@ export default function LiveScorePage() {
 
   return (
     <div className="max-w-[1200px] mx-auto px-4 py-4">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
         <div>
           <h1 className="text-2xl font-extrabold text-foreground">
             Live Cricket Scores
@@ -161,6 +161,35 @@ export default function LiveScorePage() {
           Refresh
         </Button>
       </div>
+
+      {/* Debug info bar */}
+      {!loading && (
+        <div className="flex flex-wrap gap-2 mb-4 p-3 rounded-xl bg-muted/60 border border-border text-xs font-mono">
+          <span className="font-semibold text-muted-foreground">Debug:</span>
+          <span className="bg-background border border-border rounded px-2 py-0.5">
+            Raw:{" "}
+            <span className="font-bold text-foreground">
+              {debugInfo?.rawCount ?? "—"}
+            </span>
+          </span>
+          <span className="bg-background border border-border rounded px-2 py-0.5">
+            Normalized:{" "}
+            <span className="font-bold text-foreground">
+              {debugInfo?.normalizedCount ?? "—"}
+            </span>
+          </span>
+          <span
+            className={`border rounded px-2 py-0.5 ${
+              (debugInfo?.filteredCount ?? 0) === 0
+                ? "bg-destructive/10 border-destructive/40 text-destructive"
+                : "bg-background border-border"
+            }`}
+          >
+            Filtered:{" "}
+            <span className="font-bold">{debugInfo?.filteredCount ?? "—"}</span>
+          </span>
+        </div>
+      )}
 
       {error && (
         <div

@@ -119,13 +119,9 @@ function getArticleCategory(series: string): string {
 
 function getArticleImage(series: string): string {
   const s = series.toLowerCase();
-  if (s.includes("ipl"))
-    return "https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?w=600&q=80";
-  if (s.includes("psl"))
-    return "https://images.unsplash.com/photo-1531415074968-036ba1b575da?w=600&q=80";
-  if (s.includes("women") || s.includes("woman"))
-    return "https://images.unsplash.com/photo-1562077772-3bd90403f7f0?w=600&q=80";
-  return "https://images.unsplash.com/photo-1624880357913-a8539238245b?w=600&q=80";
+  if (s.includes("ipl")) return "/assets/generated/ipl.dim_800x400.jpg";
+  if (s.includes("psl")) return "/assets/generated/psl.dim_800x400.jpg";
+  return "/assets/generated/cricket-default.dim_800x400.jpg";
 }
 
 type ArticleType = "dream11" | "prediction" | "pitchReport" | "playingXI";
@@ -605,7 +601,18 @@ function ArticlePreview({
 
 export default function AdminPage() {
   const { isAdmin } = useSimpleAuth();
-  const { actor } = useActor();
+  const { actor, isFetching: actorFetching } = useActor();
+
+  const waitForActor = useCallback(async (): Promise<
+    import("../backend.d").backendInterface
+  > => {
+    if (actor) return actor;
+    for (let i = 0; i < 10; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (actor) return actor;
+    }
+    throw new Error("Backend not available. Please refresh the page.");
+  }, [actor]);
 
   const {
     data: articles = [],
@@ -684,8 +691,8 @@ export default function AdminPage() {
     if (!settings.botToken || !settings.chatId) return;
     const message = buildTelegramMessage(article);
     console.log("Sending:", message);
-    if (!actor) throw new Error("Backend actor not ready");
-    const result = await actor.sendTelegramMessage(
+    const currentActor = await waitForActor();
+    const result = await currentActor.sendTelegramMessage(
       settings.botToken,
       settings.chatId,
       message,
@@ -703,11 +710,10 @@ export default function AdminPage() {
       if (!settings.botToken || !settings.chatId) {
         throw new Error("Bot Token and Chat ID are required.");
       }
-      if (!actor)
-        throw new Error("Backend actor not ready. Please wait a moment.");
       const message = "CricFlash Connected ✅";
       console.log("Sending:", message);
-      const result = await actor.sendTelegramMessage(
+      const currentActor = await waitForActor();
+      const result = await currentActor.sendTelegramMessage(
         settings.botToken,
         settings.chatId,
         message,
@@ -1533,7 +1539,7 @@ export default function AdminPage() {
               type="button"
               variant="outline"
               onClick={handleTestTelegram}
-              disabled={isTesting}
+              disabled={isTesting || actorFetching}
             >
               {isTesting ? (
                 <>
