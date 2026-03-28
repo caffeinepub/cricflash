@@ -1,19 +1,23 @@
 import Map "mo:core/Map";
 import Time "mo:core/Time";
-import Text "mo:core/Text";
 import Int "mo:core/Int";
 import Array "mo:core/Array";
 import Principal "mo:core/Principal";
+import Text "mo:core/Text";
 import AccessControl "authorization/access-control";
 import MixinAuthorization "authorization/MixinAuthorization";
 import MixinStorage "blob-storage/Mixin";
 import Order "mo:core/Order";
-
 import Runtime "mo:core/Runtime";
-
+import Outcall "http-outcalls/outcall";
 
 actor {
   include MixinStorage();
+
+  // Shared function for use as HTTP outcall POST callback
+  public shared query func transform(input : Outcall.TransformationInput) : async Outcall.TransformationOutput {
+    Outcall.transform(input);
+  };
 
   // Initialize the user system state
   let accessControlState = AccessControl.initState();
@@ -47,7 +51,7 @@ actor {
     userProfiles.add(caller, profile);
   };
 
-  // ARTICLE TYPES
+  // Article types
   type Article = {
     id : Text;
     title : Text;
@@ -66,12 +70,8 @@ actor {
     };
   };
 
-  // Persistent data structure for articles
+  // CRUD operations
   let articles = Map.empty<Text, Article>();
-
-  // CRUD OPERATIONS
-  // Note: Article CRUD is open to any caller (including anonymous).
-  // Access is enforced at the frontend admin panel level via SimpleAuth.
 
   public shared ({ caller }) func createArticle(title : Text, content : Text, category : Text, imageUrl : Text, slug : Text, status : Text) : async Text {
     if (title.size() == 0) {
@@ -104,7 +104,7 @@ actor {
   public query ({ caller }) func getArticles() : async [Article] {
     let allArticles = articles.values().toArray();
     let isAdmin = AccessControl.isAdmin(accessControlState, caller);
-    
+
     // Filter articles based on caller type
     // Anonymous callers only see published articles
     let filteredArticles = allArticles.filter(
@@ -119,7 +119,7 @@ actor {
         false;
       }
     );
-    
+
     filteredArticles.sort(Article.compareByCreatedAt);
   };
 
@@ -181,5 +181,25 @@ actor {
     };
     articles.add(id, updatedArticle);
     updatedArticle;
+  };
+
+  public shared ({ caller }) func sendTelegramMessage(botToken : Text, chatId : Text, message : Text) : async Text {
+    let url = "https://api.telegram.org/bot" # botToken # "/sendMessage";
+    let requestBody = "{\"chat_id\":\"" # chatId # "\",\"text\":\"" # message # "\",\"parse_mode\":\"HTML\"}";
+    let maxResponseSize = 100000_000;
+    try {
+      let response = await Outcall.httpPostRequest(url, [], requestBody, transform);
+      if (response.contains(#predicate(func(c) { c == '\t' }))) {
+        return "ok";
+      } else {
+        if (response.contains(#predicate(func(c) { c == '\t' })) and not response.contains(#predicate(func(c) { c == '\t' }))) {
+          return "telegram-error: " # response;
+        } else {
+          return "http-error: " # response;
+        };
+      };
+    } catch (_) {
+      "outcall-error";
+    };
   };
 };

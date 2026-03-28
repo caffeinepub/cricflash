@@ -33,6 +33,7 @@ import {
   AlertCircle,
   ChevronDown,
   ChevronUp,
+  Clock,
   Edit,
   Eye,
   EyeOff,
@@ -40,6 +41,7 @@ import {
   Globe,
   Loader2,
   LogIn,
+  Play,
   Plus,
   RefreshCw,
   Send,
@@ -49,9 +51,10 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Article } from "../backend.d";
+import { useActor } from "../hooks/useActor";
 import {
   useArticles,
   useCreateArticle,
@@ -65,10 +68,9 @@ import {
 } from "../services/cricapi";
 import {
   type TelegramSettings,
+  buildTelegramMessage,
   loadTelegramSettings,
   saveTelegramSettings,
-  sendToTelegram,
-  testTelegramConnection,
 } from "../utils/telegram";
 
 function formatDate(createdAt: bigint): string {
@@ -478,6 +480,7 @@ function ArticlePreview({
 
 export default function AdminPage() {
   const { isAdmin } = useSimpleAuth();
+  const { actor } = useActor();
 
   const {
     data: articles = [],
@@ -514,6 +517,27 @@ export default function AdminPage() {
   const [automationLog, setAutomationLog] = useState<string[]>([]);
   const [matchListOpen, setMatchListOpen] = useState(false);
 
+  // ── Scheduler state ───────────────────────────────────────────────────────
+  const [schedulerEnabled, setSchedulerEnabled] = useState<boolean>(() => {
+    return localStorage.getItem("cricflash_scheduler_enabled") === "true";
+  });
+  const [lastRunTime, setLastRunTime] = useState<string>(
+    () => localStorage.getItem("cricflash_last_run") || "",
+  );
+  const [lastRunArticlesCount, setLastRunArticlesCount] = useState<number>(() =>
+    Number(localStorage.getItem("cricflash_last_run_count") || "0"),
+  );
+  const [lastRunStatus, setLastRunStatus] = useState<"success" | "failed" | "">(
+    () =>
+      (localStorage.getItem("cricflash_last_run_status") as
+        | "success"
+        | "failed"
+        | "") || "",
+  );
+  const [isRunningAutomation, setIsRunningAutomation] = useState(false);
+  const schedulerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastTriggeredDateRef = useRef<string>("");
+
   // ── Telegram state ───────────────────────────────────────────────────────
   const [tgSettings, setTgSettings] = useState<TelegramSettings>(() =>
     loadTelegramSettings(),
@@ -525,11 +549,50 @@ export default function AdminPage() {
     toast.success("Telegram settings saved!");
   };
 
+  const sendViaTelegram = async (article: {
+    title: string;
+    excerpt?: string;
+    category?: string;
+    slug?: string;
+  }): Promise<void> => {
+    const settings = loadTelegramSettings();
+    if (!settings.botToken || !settings.chatId) return;
+    const message = buildTelegramMessage(article);
+    console.log("Sending:", message);
+    if (!actor) throw new Error("Backend actor not ready");
+    const result = await actor.sendTelegramMessage(
+      settings.botToken,
+      settings.chatId,
+      message,
+    );
+    console.log("Telegram response:", result);
+    if (result !== "ok" && !result.startsWith("ok")) {
+      throw new Error(result);
+    }
+  };
+
   const handleTestTelegram = async () => {
     setIsTesting(true);
     try {
-      await testTelegramConnection();
-      toast.success("Test message sent! Check your Telegram channel.");
+      const settings = loadTelegramSettings();
+      if (!settings.botToken || !settings.chatId) {
+        throw new Error("Bot Token and Chat ID are required.");
+      }
+      if (!actor)
+        throw new Error("Backend actor not ready. Please wait a moment.");
+      const message = "CricFlash Connected ✅";
+      console.log("Sending:", message);
+      const result = await actor.sendTelegramMessage(
+        settings.botToken,
+        settings.chatId,
+        message,
+      );
+      console.log("Telegram response:", result);
+      if (result === "ok" || result.startsWith("ok")) {
+        toast.success("Test message sent! Check your Telegram channel.");
+      } else {
+        throw new Error(result);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(`Test failed: ${msg}`);
@@ -655,8 +718,8 @@ export default function AdminPage() {
           tags: article.tags ?? [],
         });
         published++;
-        // Send to Telegram (non-blocking)
-        sendToTelegram({
+        // Send to Telegram via backend (non-blocking)
+        sendViaTelegram({
           title: article.title,
           excerpt: article.excerpt ?? "",
           category: article.category,
@@ -664,6 +727,7 @@ export default function AdminPage() {
         }).catch((err) => {
           console.warn("[Telegram] Failed to send article:", err);
         });
+        await new Promise((r) => setTimeout(r, 1500));
       }
       addLog(`Published ${published} articles.`);
       toast.success(`Published ${published} articles!`);
@@ -695,6 +759,191 @@ export default function AdminPage() {
   useEffect(() => {
     document.title = "Admin Panel – CricFlash";
   }, []);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional
+  const runDailyAutomation = useCallback(async () => {
+    if (isRunningAutomation) return;
+    setIsRunningAutomation(true);
+    let totalCreated = 0;
+    const errors: string[] = [];
+    addLog("🚀 Daily automation started");
+
+    try {
+      // Step 1: Fetch matches
+      addLog("Fetching matches from CricAPI...");
+      let matches: NormalizedMatch[] = [];
+      try {
+        const classified = await getClassifiedMatches();
+        const all = [
+          ...classified.live,
+          ...classified.upcoming,
+          ...classified.completed,
+        ];
+        const seen = new Map<string, NormalizedMatch>();
+        for (const m of all) seen.set(m.id, m);
+        matches = Array.from(seen.values());
+        setFetchedMatches(matches);
+        localStorage.setItem(
+          "cricflash_admin_matches",
+          JSON.stringify(matches),
+        );
+        addLog(`Fetched ${matches.length} matches`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        errors.push(`Fetch failed: ${msg}`);
+        addLog(`⚠️ Fetch failed: ${msg}`);
+      }
+
+      // Step 2: Generate articles
+      if (matches.length > 0) {
+        addLog("Generating articles...");
+        const types: ArticleType[] = [
+          "dream11",
+          "prediction",
+          "pitchReport",
+          "playingXI",
+        ];
+        const existingKeys = new Set(articles.map((a) => a.slug));
+        for (const match of matches) {
+          for (const type of types) {
+            const payload = buildArticlePayload(match, type);
+            if (existingKeys.has(payload.slug)) continue;
+            try {
+              await createArticleMutation.mutateAsync({
+                title: payload.title,
+                content: payload.content,
+                category: payload.category,
+                imageUrl: payload.imageUrl,
+                slug: payload.slug,
+                status: "draft",
+                featured: false,
+                excerpt: payload.excerpt,
+                tags: payload.tags,
+              });
+              existingKeys.add(payload.slug);
+              totalCreated++;
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              errors.push(
+                `Generate failed for ${match.team1} vs ${match.team2} (${type}): ${msg}`,
+              );
+            }
+          }
+        }
+        addLog(`Generated ${totalCreated} new articles`);
+      }
+
+      // Refresh articles list
+      const refreshed = await refetchArticles();
+      const currentArticles = refreshed.data ?? [];
+
+      // Step 3: Publish all drafts
+      addLog("Publishing all draft articles...");
+      const drafts = currentArticles.filter((a) => a.status === "draft");
+      let publishedCount = 0;
+      for (const article of drafts) {
+        try {
+          await updateArticleMutation.mutateAsync({
+            id: article.id,
+            title: article.title,
+            content: article.content,
+            category: article.category || "General",
+            imageUrl: article.imageUrl || "",
+            slug: article.slug || generateSlug(article.title),
+            status: "published",
+            featured: article.featured ?? false,
+            excerpt: article.excerpt ?? "",
+            tags: article.tags ?? [],
+          });
+          publishedCount++;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          errors.push(`Publish failed for "${article.title}": ${msg}`);
+        }
+      }
+      addLog(`Published ${publishedCount} articles`);
+
+      // Step 4: Send to Telegram with delay
+      if (publishedCount > 0) {
+        addLog("Sending to Telegram...");
+        const fresh = await refetchArticles();
+        const justPublished = (fresh.data ?? [])
+          .filter((a) => a.status === "published")
+          .slice(0, publishedCount);
+        let tgSent = 0;
+        for (const article of justPublished) {
+          try {
+            await sendViaTelegram({
+              title: article.title,
+              excerpt: article.excerpt ?? "",
+              category: article.category,
+              slug: article.slug,
+            });
+            tgSent++;
+            if (tgSent < justPublished.length) {
+              await new Promise((r) => setTimeout(r, 1500));
+            }
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            errors.push(`Telegram failed for "${article.title}": ${msg}`);
+          }
+        }
+        addLog(`Sent ${tgSent} messages to Telegram`);
+      }
+    } finally {
+      const now = new Date().toLocaleString("en-IN", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      });
+      const status = errors.length === 0 ? "success" : "failed";
+      setLastRunTime(now);
+      setLastRunArticlesCount(totalCreated);
+      setLastRunStatus(status);
+      localStorage.setItem("cricflash_last_run", now);
+      localStorage.setItem("cricflash_last_run_count", String(totalCreated));
+      localStorage.setItem("cricflash_last_run_status", status);
+      if (errors.length > 0) {
+        addLog(`⚠️ Completed with ${errors.length} error(s)`);
+      } else {
+        addLog("✅ Daily automation completed successfully");
+      }
+      setIsRunningAutomation(false);
+    }
+  }, [isRunningAutomation, articles, actor]);
+
+  const runDailyAutomationRef = useRef(runDailyAutomation);
+  useEffect(() => {
+    runDailyAutomationRef.current = runDailyAutomation;
+  });
+
+  // Scheduler: check every minute if it's 07:00
+  useEffect(() => {
+    const check = () => {
+      if (!schedulerEnabled) return;
+      const now = new Date();
+      const hhmm = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
+      const today = now.toDateString();
+      if (hhmm === "07:00" && lastTriggeredDateRef.current !== today) {
+        lastTriggeredDateRef.current = today;
+        runDailyAutomationRef.current();
+      }
+    };
+    schedulerRef.current = setInterval(check, 60_000);
+    return () => {
+      if (schedulerRef.current) clearInterval(schedulerRef.current);
+    };
+  }, [schedulerEnabled]);
+
+  const handleSchedulerToggle = (enabled: boolean) => {
+    setSchedulerEnabled(enabled);
+    localStorage.setItem("cricflash_scheduler_enabled", String(enabled));
+    toast.success(
+      enabled
+        ? "Auto Scheduler enabled (runs at 07:00 daily)"
+        : "Auto Scheduler disabled",
+    );
+  };
 
   const handleTitleChange = (val: string) => {
     setFormTitle(val);
@@ -767,9 +1016,9 @@ export default function AdminPage() {
         toast.success(
           formPublished ? "Article published!" : "Article saved as draft!",
         );
-        // Send to Telegram when publishing
+        // Send to Telegram via backend when publishing
         if (formPublished) {
-          sendToTelegram({
+          sendViaTelegram({
             title: payload.title,
             excerpt: payload.excerpt,
             category: payload.category,
@@ -816,7 +1065,7 @@ export default function AdminPage() {
   const isSaving =
     createArticleMutation.isPending || updateArticleMutation.isPending;
   const anyAutomationRunning =
-    isFetchingMatches || isGenerating || isPublishing;
+    isFetchingMatches || isGenerating || isPublishing || isRunningAutomation;
   const publishedCount = articles.filter(
     (a) => a.status === "published",
   ).length;
@@ -1012,6 +1261,81 @@ export default function AdminPage() {
                   {log}
                 </p>
               ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Auto Scheduler ─────────────────────────────────────────────────── */}
+      <div className="bg-card border border-border rounded-2xl p-6 mb-8">
+        <div className="flex items-center gap-2 mb-1">
+          <Clock className="w-5 h-5 text-cric-red" />
+          <h2 className="text-lg font-bold text-foreground">Auto Scheduler</h2>
+        </div>
+        <p className="text-sm text-muted-foreground mb-5">
+          Automatically runs daily at 07:00 AM: fetch matches → generate
+          articles → publish → send to Telegram.
+        </p>
+
+        <div className="flex flex-wrap items-center gap-4 mb-5">
+          <div className="flex items-center gap-3">
+            <Switch
+              id="scheduler-toggle"
+              checked={schedulerEnabled}
+              onCheckedChange={handleSchedulerToggle}
+              data-ocid="scheduler.toggle"
+            />
+            <Label
+              htmlFor="scheduler-toggle"
+              className="cursor-pointer font-medium"
+            >
+              {schedulerEnabled ? "Scheduler ON" : "Scheduler OFF"}
+            </Label>
+          </div>
+          <Button
+            onClick={runDailyAutomation}
+            disabled={isRunningAutomation || anyAutomationRunning}
+            variant="outline"
+            className="flex items-center gap-2"
+            data-ocid="scheduler.primary_button"
+          >
+            {isRunningAutomation ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> Running...
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4" /> Run Now
+              </>
+            )}
+          </Button>
+        </div>
+
+        {lastRunTime && (
+          <div className="bg-muted/40 rounded-xl p-4 space-y-2">
+            <div className="grid grid-cols-3 gap-3 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground">Last Run</p>
+                <p className="font-medium text-foreground">
+                  Today {lastRunTime}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">
+                  Articles Created
+                </p>
+                <p className="font-medium text-foreground">
+                  {lastRunArticlesCount}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Status</p>
+                <p
+                  className={`font-medium ${lastRunStatus === "success" ? "text-green-600" : "text-red-500"}`}
+                >
+                  {lastRunStatus === "success" ? "✅ Success" : "❌ Failed"}
+                </p>
+              </div>
             </div>
           </div>
         )}
